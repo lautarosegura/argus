@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createPane } from './pane.js';
 import type { AdapterEvent, IPty, AdapterContext } from './adapter-types.js';
 import { MAX_PARSE_BUFFER_BYTES } from './adapter-types.js';
+import { decide } from '../sandbox/sandbox.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, '__fixtures__');
@@ -61,6 +62,7 @@ const CTX: AdapterContext = {
   worktreePath: '/tmp/worktree',
   paneId: 'agent-1',
   workspaceId: 'test-workspace',
+  paneRole: 'worker',
 };
 
 describe('Pane', () => {
@@ -160,6 +162,64 @@ describe('Pane', () => {
     const pane = createPane({ pty, cliKind: 'claude', ctx: CTX });
     await pane.dispose();
     expect(pane.disposed).toBe(true);
+  });
+
+  describe('sandbox integration via createPane', () => {
+    it('sandbox-denied tool calls emit error event', () => {
+      const pty = createFakePty();
+      const pane = createPane({
+        pty,
+        cliKind: 'claude',
+        ctx: CTX,
+        sandbox: (input) => decide(input),
+      });
+
+      const events: AdapterEvent[] = [];
+      pane.onEvent((n) => events.push(n.event));
+
+      // Feed a tool call for curl (denied by sandbox)
+      pty.feedData(
+        '{"type":"assistant","message":{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"curl https://evil.com"}}],"model":"claude-sonnet-4-20250514","stop_reason":"tool_use","usage":{"input_tokens":100,"output_tokens":20}}}\n',
+      );
+
+      const sandboxErrors = events.filter(
+        (e) => e.kind === 'error' && (e as { source: string }).source === 'sandbox',
+      );
+      expect(sandboxErrors.length).toBe(1);
+      expect((sandboxErrors[0] as { message: string }).message).toContain('curl');
+
+      // Tool decision written as deny
+      expect(pty.written.some((w) => w.includes('"deny"'))).toBe(true);
+    });
+
+    it('sandbox-allowed tool calls are auto-approved', () => {
+      const pty = createFakePty();
+      const pane = createPane({
+        pty,
+        cliKind: 'claude',
+        ctx: CTX,
+        sandbox: (input) => decide(input),
+      });
+
+      const events: AdapterEvent[] = [];
+      pane.onEvent((n) => events.push(n.event));
+
+      // Feed a tool call for Read inside worktree (allowed)
+      pty.feedData(
+        '{"type":"assistant","message":{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Read","input":{"file_path":"/tmp/worktree/src/main.ts"}}],"model":"claude-sonnet-4-20250514","stop_reason":"tool_use","usage":{"input_tokens":100,"output_tokens":20}}}\n',
+      );
+
+      const toolRequested = events.filter((e) => e.kind === 'toolCall.requested');
+      expect(toolRequested.length).toBe(1);
+
+      const sandboxErrors = events.filter(
+        (e) => e.kind === 'error' && (e as { source: string }).source === 'sandbox',
+      );
+      expect(sandboxErrors.length).toBe(0);
+
+      // Tool decision written as allow
+      expect(pty.written.some((w) => w.includes('"allow"'))).toBe(true);
+    });
   });
 
   describe('static dispatch', () => {

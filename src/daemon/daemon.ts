@@ -193,6 +193,36 @@ export function createDaemon(opts: DaemonOptions): Daemon {
         break;
       }
 
+      case 'pane.decideTool': {
+        const pane = paneManager.getPane(params.paneId as string);
+        if (!pane) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.PANE_DEAD, `Pane not found: ${params.paneId}`)));
+          break;
+        }
+        pane.decideToolCall(
+          params.toolId as string,
+          params.decision as 'allow' | 'deny',
+          params.reason as string | undefined,
+        );
+        socket.write(encodeMessage(makeResponse(req.id, {})));
+        break;
+      }
+
+      case 'pane.decidePermission': {
+        const pane = paneManager.getPane(params.paneId as string);
+        if (!pane) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.PANE_DEAD, `Pane not found: ${params.paneId}`)));
+          break;
+        }
+        pane.decidePermission(
+          params.permissionId as string,
+          params.decision as 'allow' | 'deny',
+          params.reason as string | undefined,
+        );
+        socket.write(encodeMessage(makeResponse(req.id, {})));
+        break;
+      }
+
       default:
         socket.write(
           encodeMessage(

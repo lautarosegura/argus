@@ -1,4 +1,4 @@
-import { ClaudeAdapter } from './claude-adapter.js';
+import { ClaudeAdapter, type SandboxFn } from './claude-adapter.js';
 import type {
   Adapter,
   AdapterContext,
@@ -31,20 +31,21 @@ export interface CreatePaneOptions {
   pty: IPty;
   cliKind: string;
   ctx: AdapterContext;
+  sandbox?: SandboxFn;
 }
 
-function createAdapter(cliKind: string): Adapter {
+function createAdapter(cliKind: string, sandbox?: SandboxFn): Adapter {
   switch (cliKind) {
     case 'claude':
-      return new ClaudeAdapter();
+      return new ClaudeAdapter(sandbox);
     default:
       throw new Error(`Unknown CLI kind: ${cliKind}`);
   }
 }
 
 export function createPane(opts: CreatePaneOptions): Pane {
-  const { pty, cliKind, ctx } = opts;
-  const adapter = createAdapter(cliKind);
+  const { pty, cliKind, ctx, sandbox } = opts;
+  const adapter = createAdapter(cliKind, sandbox);
 
   let currentState: LivePaneState = 'idle';
   let isDisposed = false;
