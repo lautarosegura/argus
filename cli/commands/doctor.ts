@@ -140,8 +140,7 @@ export async function doctor(): Promise<void> {
 
   let hasFail = false;
   for (const r of results) {
-    const icon = r.status === 'PASS' ? 'PASS' : 'FAIL';
-    const line = `  [${icon}] ${r.name}`;
+    const line = `  [${r.status}] ${r.name}`;
     console.log(r.detail ? `${line}: ${r.detail}` : line);
     if (r.status === 'FAIL' && r.remediation) {
       console.log(`         -> ${r.remediation}`);
