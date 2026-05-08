@@ -11,6 +11,7 @@ class PaneGrid {
     this._xtermLoaded = false;
     this._Terminal = null;
     this._FitAddon = null;
+    this._resizeHandler = () => this._fitAll();
   }
 
   async loadXterm(nodeModulesPath) {
@@ -21,21 +22,8 @@ class PaneGrid {
     linkEl.href = `file://${nodeModulesPath}/@xterm/xterm/css/xterm.css`;
     document.head.appendChild(linkEl);
 
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = `file://${nodeModulesPath}/@xterm/xterm/lib/xterm.js`;
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = `file://${nodeModulesPath}/@xterm/addon-fit/lib/addon-fit.js`;
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
+    await this._loadScript(`file://${nodeModulesPath}/@xterm/xterm/lib/xterm.js`);
+    await this._loadScript(`file://${nodeModulesPath}/@xterm/addon-fit/lib/addon-fit.js`);
 
     this._Terminal = window.Terminal;
     this._FitAddon = window.FitAddon;
@@ -138,7 +126,7 @@ class PaneGrid {
 
     this._container.appendChild(gridContainer);
 
-    window.addEventListener('resize', () => this._fitAll());
+    window.addEventListener('resize', this._resizeHandler);
   }
 
   handlePaneEvent(paneId, event) {
@@ -172,10 +160,20 @@ class PaneGrid {
   }
 
   dispose() {
+    window.removeEventListener('resize', this._resizeHandler);
     for (const [, entry] of this._panes) {
       entry.terminal.dispose();
     }
     this._panes.clear();
-    window.removeEventListener('resize', () => this._fitAll());
+  }
+
+  _loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
   }
 }

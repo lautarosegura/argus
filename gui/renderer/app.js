@@ -58,22 +58,27 @@ async function openWorkspace(id) {
 
     await window.argus.attachWorkspace(id);
   } catch (err) {
-    mainContent.innerHTML = `
-      <div class="empty-state">
-        <h1>Error</h1>
-        <p>${err.message || 'Failed to open workspace'}</p>
-        <button class="btn btn-secondary" onclick="showEmptyState()">Back</button>
-      </div>
-    `;
+    mainContent.innerHTML = '';
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'empty-state';
+
+    const heading = document.createElement('h1');
+    heading.textContent = 'Error';
+    const msg = document.createElement('p');
+    msg.textContent = err.message || 'Failed to open workspace';
+    const backBtn = document.createElement('button');
+    backBtn.className = 'btn btn-secondary';
+    backBtn.textContent = 'Back';
+    backBtn.addEventListener('click', () => showEmptyState());
+
+    errorDiv.append(heading, msg, backBtn);
+    mainContent.appendChild(errorDiv);
   }
 }
 
 window.argus.onNotification((method, params) => {
   if (method === 'pane.event' && grid && params.workspaceId === currentWorkspaceId) {
     grid.handlePaneEvent(params.paneId, params.event);
-  }
-  if (method === 'workspace.stateChanged' && params.workspaceId === currentWorkspaceId) {
-    // Refresh workspace state on major changes
   }
   if (method === 'daemon.shuttingDown') {
     connectionStatus.textContent = 'daemon shutting down';

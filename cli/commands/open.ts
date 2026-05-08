@@ -25,13 +25,5 @@ export async function open(args: string[]): Promise<void> {
 }
 
 function resolveElectron(): string {
-  try {
-    const electronPath = path.resolve(
-      __dirname, '..', '..', 'node_modules', 'electron', 'cli.js',
-    );
-    return electronPath;
-  } catch {
-    console.error('Electron not found. Install it with: npm install --save-dev electron');
-    process.exit(1);
-  }
+  return path.resolve(__dirname, '..', '..', 'node_modules', 'electron', 'cli.js');
 }
