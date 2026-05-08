@@ -61,7 +61,6 @@ function writeWorkspaceState(state: WorkspaceState): void {
 }
 
 function makeInterruptedMergeState(
-  repoDir: string,
   overrides?: Partial<MergeRunState>,
 ): MergeRunState {
   return {
@@ -98,7 +97,6 @@ function makeWorkspaceState(repoDir: string, overrides?: Partial<WorkspaceState>
 }
 
 function setupRepoWithWorkerBranches(repoDir: string): void {
-  const mainHead = git(repoDir, 'rev-parse', 'HEAD');
   git(repoDir, 'tag', 'workspace-pre-merge-test');
 
   for (const paneId of ['agent-2', 'agent-3']) {
@@ -123,7 +121,7 @@ describe('merge.revert RPC', () => {
     git(repoDir, 'merge', 'workspace/test-ws/agent-2', '--no-edit');
 
     const state = makeWorkspaceState(repoDir, {
-      mergeState: makeInterruptedMergeState(repoDir, {
+      mergeState: makeInterruptedMergeState({
         phase: 'merging',
         mergedBranches: ['workspace/test-ws/agent-2'],
       }),
@@ -173,7 +171,7 @@ describe('merge.revert RPC', () => {
   it('rejects revert when merge already completed', async () => {
     const repoDir = makeRepo();
     const state = makeWorkspaceState(repoDir, {
-      mergeState: makeInterruptedMergeState(repoDir, {
+      mergeState: makeInterruptedMergeState({
         phase: 'complete',
         completedAt: new Date().toISOString(),
       }),
@@ -203,7 +201,7 @@ describe('merge.resume RPC', () => {
     git(repoDir, 'merge', 'workspace/test-ws/agent-2', '--no-edit');
 
     const state = makeWorkspaceState(repoDir, {
-      mergeState: makeInterruptedMergeState(repoDir, {
+      mergeState: makeInterruptedMergeState({
         phase: 'merging',
         mergedBranches: ['workspace/test-ws/agent-2'],
       }),
@@ -267,7 +265,7 @@ describe('merge.resume RPC', () => {
     setupRepoWithWorkerBranches(repoDir);
 
     const state = makeWorkspaceState(repoDir, {
-      mergeState: makeInterruptedMergeState(repoDir, { phase: 'merging' }),
+      mergeState: makeInterruptedMergeState({ phase: 'merging' }),
     });
     writeWorkspaceState(state);
 
@@ -411,7 +409,7 @@ describe('daemon recovery on restart', () => {
   it('interrupted merge detected via workspace.get after restart', async () => {
     const repoDir = makeRepo();
     const state = makeWorkspaceState(repoDir, {
-      mergeState: makeInterruptedMergeState(repoDir, { phase: 'testing' }),
+      mergeState: makeInterruptedMergeState({ phase: 'testing' }),
     });
     writeWorkspaceState(state);
 
@@ -444,14 +442,14 @@ describe('daemon recovery on restart', () => {
     const interrupted = makeWorkspaceState(repoDir, {
       id: 'merge-ws',
       name: 'merge-ws',
-      mergeState: makeInterruptedMergeState(repoDir, { phase: 'merging' }),
+      mergeState: makeInterruptedMergeState({ phase: 'merging' }),
     });
     writeWorkspaceState(interrupted);
 
     const completed = makeWorkspaceState(repoDir, {
       id: 'done-ws',
       name: 'done-ws',
-      mergeState: makeInterruptedMergeState(repoDir, {
+      mergeState: makeInterruptedMergeState({
         phase: 'complete',
         completedAt: new Date().toISOString(),
       }),

@@ -30,6 +30,8 @@ import { createMergeRun, resumeMergeRun, type MergeRun } from '../merge/merge-ru
 import type { MergePhase } from '../workspace/workspace-types.js';
 import path from 'node:path';
 
+const execFileAsync = promisify(execFile);
+
 export interface DaemonOptions {
   pipePath: string;
   idleShutdownMs: number;
@@ -61,6 +63,20 @@ export function createDaemon(opts: DaemonOptions): Daemon {
 
   function isMergeInterrupted(phase: MergePhase): boolean {
     return !TERMINAL_MERGE_PHASES.includes(phase);
+  }
+
+  function trackMergeRun(workspaceId: string, run: MergeRun): void {
+    activeMergeRuns.set(workspaceId, run);
+    run.promise.then(async (finalState) => {
+      activeMergeRuns.delete(workspaceId);
+      try {
+        const current = await registry!.get(workspaceId);
+        current.mergeState = finalState;
+        await registry!.update(current);
+      } catch {}
+    }).catch(() => {
+      activeMergeRuns.delete(workspaceId);
+    });
   }
 
   async function handleRequest(req: JsonRpcRequest, socket: net.Socket): Promise<void> {
@@ -440,19 +456,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
 
           state.mergeState = run.state;
           await registry.update(state);
-
-          activeMergeRuns.set(state.id, run);
-
-          run.promise.then(async (finalState) => {
-            activeMergeRuns.delete(state.id);
-            try {
-              const current = await registry!.get(state.id);
-              current.mergeState = finalState;
-              await registry!.update(current);
-            } catch {}
-          }).catch(() => {
-            activeMergeRuns.delete(state.id);
-          });
+          trackMergeRun(state.id, run);
 
           socket.write(encodeMessage(makeResponse(req.id, {
             mergeRunId: run.state.mergeRunId,
@@ -498,7 +502,6 @@ export function createDaemon(opts: DaemonOptions): Daemon {
             socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, `Merge already ${state.mergeState.phase} — cannot revert`)));
             break;
           }
-          const execFileAsync = promisify(execFile);
           await execFileAsync('git', ['reset', '--hard', state.mergeState.preMergeTag], { cwd: state.repoPath });
           state.mergeState.phase = 'reverted';
           state.mergeState.completedAt = new Date().toISOString();
@@ -550,19 +553,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
 
           state.mergeState = run.state;
           await registry.update(state);
-
-          activeMergeRuns.set(state.id, run);
-
-          run.promise.then(async (finalState) => {
-            activeMergeRuns.delete(state.id);
-            try {
-              const current = await registry!.get(state.id);
-              current.mergeState = finalState;
-              await registry!.update(current);
-            } catch {}
-          }).catch(() => {
-            activeMergeRuns.delete(state.id);
-          });
+          trackMergeRun(state.id, run);
 
           socket.write(encodeMessage(makeResponse(req.id, {
             mergeRunId: run.state.mergeRunId,
