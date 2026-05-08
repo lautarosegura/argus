@@ -161,10 +161,10 @@ export class CodexAdapter extends Adapter {
 
   private handleReasoning(event: CodexStreamEvent): void {
     this.transitionState('thinking');
-    const text = event.summary
-      ?.filter((p) => p.type === 'text')
+    const text = (event.summary ?? [])
+      .filter((p) => p.type === 'text')
       .map((p) => p.text ?? '')
-      .join('') ?? '';
+      .join('');
     this.emit('event', {
       kind: 'thinking',
       text,

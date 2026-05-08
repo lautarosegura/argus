@@ -235,7 +235,9 @@ describe('CodexAdapter', () => {
 
       await new Promise((r) => setTimeout(r, 50));
       adapter.decideToolCall('call_01', 'allow');
-      expect(pty.written.length).toBeGreaterThan(0);
+      expect(pty.written).toContain(
+        JSON.stringify({ type: 'tool_decision', call_id: 'call_01', decision: 'allow' }) + '\n',
+      );
     });
   });
 
