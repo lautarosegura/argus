@@ -15,6 +15,8 @@ class MergePane {
     this._cancelBtn = null;
     this._phaseEls = {};
     this._detailEl = null;
+    this._subAgentsEl = null;
+    this._subAgents = new Map();
   }
 
   /**
@@ -95,6 +97,11 @@ class MergePane {
     this._detailEl.className = 'merge-pane-detail';
     this._el.appendChild(this._detailEl);
 
+    this._subAgentsEl = document.createElement('div');
+    this._subAgentsEl.className = 'merge-sub-agents';
+    this._subAgentsEl.style.display = 'none';
+    this._el.appendChild(this._subAgentsEl);
+
     this._updateDisplay();
     this._container.appendChild(this._el);
   }
@@ -167,7 +174,42 @@ class MergePane {
     this._phase = phase;
     if (detail !== undefined) this._detail = detail;
     if (phase === 'reverted' && detail) this._error = detail;
+    if (phase === 'resolving' && detail) {
+      const match = detail.match(/^Sub-agent ([\w-]+): (.+)$/);
+      if (match) {
+        this._updateSubAgent(match[1], match[2]);
+      }
+    }
     this._updateDisplay();
+  }
+
+  _updateSubAgent(subAgentId, detail) {
+    if (!this._subAgentsEl) return;
+
+    let entry = this._subAgents.get(subAgentId);
+    if (!entry) {
+      entry = document.createElement('div');
+      entry.className = 'merge-sub-agent-entry';
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-thinking';
+      badge.textContent = subAgentId;
+      entry.appendChild(badge);
+      const text = document.createElement('span');
+      text.className = 'merge-sub-agent-detail';
+      entry.appendChild(text);
+      this._subAgentsEl.appendChild(entry);
+      this._subAgents.set(subAgentId, { el: entry, badge, text });
+    }
+
+    entry.text.textContent = detail;
+
+    if (detail.startsWith('Resolved')) {
+      entry.badge.className = 'badge badge-done';
+    } else if (detail.startsWith('Failed')) {
+      entry.badge.className = 'badge badge-dead';
+    }
+
+    this._subAgentsEl.style.display = 'block';
   }
 
   /**

@@ -20,6 +20,15 @@ export interface PlanState {
 
 export type MergePhase = 'tagging' | 'merging' | 'resolving' | 'testing' | 'complete' | 'reverted';
 
+export interface SubAgentEntry {
+  subAgentId: string;
+  cli: string;
+  file: string;
+  status: 'running' | 'resolved' | 'failed' | 'timeout';
+  startedAt: string;
+  completedAt: string | null;
+}
+
 export interface MergeRunState {
   mergeRunId: string;
   phase: MergePhase;
@@ -30,6 +39,7 @@ export interface MergeRunState {
   startedAt: string;
   completedAt: string | null;
   error?: string;
+  subAgents?: SubAgentEntry[];
 }
 
 export interface WorkspaceState {
