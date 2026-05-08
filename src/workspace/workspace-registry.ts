@@ -33,6 +33,9 @@ function migrate(state: Record<string, unknown>): WorkspaceState {
   if (version < CURRENT_SCHEMA_VERSION) {
     state.schemaVersion = CURRENT_SCHEMA_VERSION;
   }
+  if (state.intent === undefined) {
+    state.intent = '';
+  }
   return state as unknown as WorkspaceState;
 }
 
@@ -62,6 +65,7 @@ export function createWorkspaceRegistry(stateDir: string): WorkspaceRegistry {
         name: params.name,
         createdAt: new Date().toISOString(),
         repoPath: params.repoPath,
+        intent: params.intent ?? '',
         agentRatio: params.agentRatio,
         panes: [],
         plan: params.plan ? { path: params.plan, approvedAt: null } : null,

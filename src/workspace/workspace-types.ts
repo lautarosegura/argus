@@ -24,6 +24,7 @@ export interface WorkspaceState {
   name: string;
   createdAt: string;
   repoPath: string;
+  intent: string;
   agentRatio: AgentRatioEntry[];
   panes: PaneState[];
   plan: PlanState | null;
@@ -43,6 +44,7 @@ export interface CreateWorkspaceParams {
   name: string;
   agentRatio: AgentRatioEntry[];
   repoPath: string;
+  intent?: string;
   plan?: string;
 }
 
