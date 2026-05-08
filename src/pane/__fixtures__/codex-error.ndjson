@@ -1,0 +1,2 @@
+{"type":"session.start","session_id":"sess_err","model":"o4-mini","tools":["shell","read_file","write_file"]}
+{"type":"session.complete","status":"error","error":"Authentication failed: invalid API key"}

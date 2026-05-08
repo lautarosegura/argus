@@ -1,0 +1,6 @@
+{"type":"session.start","session_id":"sess_tool","model":"o4-mini","tools":["shell","read_file","write_file"]}
+{"type":"reasoning","id":"r_01","summary":[{"type":"text","text":"I need to read the file to understand the code."}]}
+{"type":"function_call","id":"fc_01","call_id":"call_01","name":"read_file","arguments":"{\"path\":\"/tmp/test.ts\"}"}
+{"type":"function_call_output","call_id":"call_01","output":"const x = 1;"}
+{"type":"message","id":"msg_01","role":"assistant","content":[{"type":"output_text","text":"The file contains a simple variable declaration: `const x = 1;`"}]}
+{"type":"session.complete","status":"completed","usage":{"input_tokens":200,"output_tokens":45,"total_tokens":245},"cost_usd":0.006}

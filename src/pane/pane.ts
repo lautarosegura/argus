@@ -1,4 +1,5 @@
 import { ClaudeAdapter } from './claude-adapter.js';
+import { CodexAdapter } from './codex-adapter.js';
 import type {
   Adapter,
   AdapterContext,
@@ -37,6 +38,8 @@ function createAdapter(cliKind: string): Adapter {
   switch (cliKind) {
     case 'claude':
       return new ClaudeAdapter();
+    case 'codex':
+      return new CodexAdapter();
     default:
       throw new Error(`Unknown CLI kind: ${cliKind}`);
   }

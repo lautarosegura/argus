@@ -1,0 +1,1 @@
+{"type":"session.start","session_id":"sess_idle","model":"o4-mini","tools":["shell","read_file","write_file"]}

@@ -169,6 +169,12 @@ describe('Pane', () => {
       expect(pane.cliKind).toBe('claude');
     });
 
+    it('creates CodexAdapter for cliKind "codex"', () => {
+      const pty = createFakePty();
+      const pane = createPane({ pty, cliKind: 'codex', ctx: CTX });
+      expect(pane.cliKind).toBe('codex');
+    });
+
     it('throws for unknown cliKind', () => {
       const pty = createFakePty();
       expect(() =>
