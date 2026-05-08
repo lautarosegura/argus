@@ -1,5 +1,7 @@
 import net from 'node:net';
 import fs from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { EventEmitter } from 'node:events';
 import {
   type JsonRpcMessage,
@@ -24,7 +26,8 @@ import { provisionWorkspace, cleanWorkspace } from '../workspace/worktree-manage
 import { createPaneManager } from '../pane/pane-manager.js';
 import { parsePlan, readPlanFile, writePlanFile } from '../plan/plan.js';
 import { buildWorkerPrompt } from '../plan/prompts.js';
-import { createMergeRun, type MergeRun } from '../merge/merge-runner.js';
+import { createMergeRun, resumeMergeRun, type MergeRun } from '../merge/merge-runner.js';
+import type { MergePhase } from '../workspace/workspace-types.js';
 import path from 'node:path';
 
 export interface DaemonOptions {
@@ -53,6 +56,12 @@ export function createDaemon(opts: DaemonOptions): Daemon {
 
   const paneManager = createPaneManager();
   const activeMergeRuns = new Map<string, MergeRun>();
+
+  const TERMINAL_MERGE_PHASES: MergePhase[] = ['complete', 'reverted'];
+
+  function isMergeInterrupted(phase: MergePhase): boolean {
+    return !TERMINAL_MERGE_PHASES.includes(phase);
+  }
 
   async function handleRequest(req: JsonRpcRequest, socket: net.Socket): Promise<void> {
     const params = (req.params ?? {}) as Record<string, unknown>;
@@ -468,6 +477,149 @@ export function createDaemon(opts: DaemonOptions): Daemon {
           }
           run.cancel();
           socket.write(encodeMessage(makeResponse(req.id, {})));
+        } catch (err) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, toErrorMessage(err))));
+        }
+        break;
+      }
+
+      case 'merge.revert': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, 'No state directory configured')));
+          break;
+        }
+        try {
+          const state = await registry.get(params.workspaceId as string);
+          if (!state.mergeState) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, 'No merge state to revert')));
+            break;
+          }
+          if (!isMergeInterrupted(state.mergeState.phase)) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, `Merge already ${state.mergeState.phase} — cannot revert`)));
+            break;
+          }
+          const execFileAsync = promisify(execFile);
+          await execFileAsync('git', ['reset', '--hard', state.mergeState.preMergeTag], { cwd: state.repoPath });
+          state.mergeState.phase = 'reverted';
+          state.mergeState.completedAt = new Date().toISOString();
+          state.mergeState.error = 'Reverted by user after interrupted merge';
+          await registry.update(state);
+          socket.write(encodeMessage(makeResponse(req.id, {})));
+        } catch (err) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, toErrorMessage(err))));
+        }
+        break;
+      }
+
+      case 'merge.resume': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, 'No state directory configured')));
+          break;
+        }
+        try {
+          const state = await registry.get(params.workspaceId as string);
+          if (!state.mergeState) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, 'No merge state to resume')));
+            break;
+          }
+          if (!isMergeInterrupted(state.mergeState.phase)) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, `Merge already ${state.mergeState.phase} — cannot resume`)));
+            break;
+          }
+          if (activeMergeRuns.has(state.id)) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.MERGE_IN_PROGRESS, 'Merge already in progress')));
+            break;
+          }
+
+          const mergeLogPath = path.join(state.repoPath, '.workspace', 'merge-log.md');
+          let mergeRunId = '';
+          const run = resumeMergeRun({
+            repoPath: state.repoPath,
+            mergeLogPath,
+            onProgress: (phase, detail) => {
+              paneManager.broadcastNotification(state.id, 'merge.progress', {
+                workspaceId: state.id,
+                mergeRunId,
+                phase,
+                ...(detail !== undefined && { detail }),
+              });
+            },
+            previousState: state.mergeState,
+          });
+          mergeRunId = run.state.mergeRunId;
+
+          state.mergeState = run.state;
+          await registry.update(state);
+
+          activeMergeRuns.set(state.id, run);
+
+          run.promise.then(async (finalState) => {
+            activeMergeRuns.delete(state.id);
+            try {
+              const current = await registry!.get(state.id);
+              current.mergeState = finalState;
+              await registry!.update(current);
+            } catch {}
+          }).catch(() => {
+            activeMergeRuns.delete(state.id);
+          });
+
+          socket.write(encodeMessage(makeResponse(req.id, {
+            mergeRunId: run.state.mergeRunId,
+          })));
+        } catch (err) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, toErrorMessage(err))));
+        }
+        break;
+      }
+
+      case 'pane.close': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, 'No state directory configured')));
+          break;
+        }
+        try {
+          const state = await registry.get(params.workspaceId as string);
+          const paneState = state.panes.find((p) => p.paneId === (params.paneId as string));
+          if (!paneState) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.PANE_DEAD, `Pane not found: ${params.paneId}`)));
+            break;
+          }
+          paneState.userClosed = true;
+          await registry.update(state);
+
+          const livePane = paneManager.getPane(params.paneId as string);
+          if (livePane) {
+            paneManager.removePane(params.paneId as string);
+          }
+
+          socket.write(encodeMessage(makeResponse(req.id, {})));
+        } catch (err) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
+        }
+        break;
+      }
+
+      case 'workspace.listRecoverable': {
+        if (!registry) {
+          socket.write(encodeMessage(makeResponse(req.id, { workspaces: [] })));
+          break;
+        }
+        try {
+          const list = await registry.list();
+          const recoverable = await Promise.all(
+            list.map(async (summary) => {
+              const ws = await registry!.get(summary.id);
+              const interruptedMerge = ws.mergeState !== null && isMergeInterrupted(ws.mergeState.phase);
+              const activePaneCount = ws.panes.filter((p) => !p.userClosed).length;
+              return {
+                id: ws.id,
+                interruptedMerge,
+                activePaneCount,
+              };
+            }),
+          );
+          socket.write(encodeMessage(makeResponse(req.id, { workspaces: recoverable })));
         } catch (err) {
           socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, toErrorMessage(err))));
         }

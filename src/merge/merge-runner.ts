@@ -16,6 +16,13 @@ export interface MergeRunOptions {
   onProgress: (phase: MergePhase, detail?: string) => void;
 }
 
+export interface ResumeMergeRunOptions {
+  repoPath: string;
+  mergeLogPath: string;
+  onProgress: (phase: MergePhase, detail?: string) => void;
+  previousState: MergeRunState;
+}
+
 export interface MergeRun {
   readonly state: MergeRunState;
   readonly promise: Promise<MergeRunState>;
@@ -133,87 +140,37 @@ async function tryAutoResolve(
   return { resolved: true, files: resolvedFiles };
 }
 
-export function createMergeRun(opts: MergeRunOptions): MergeRun {
+interface MergeRunContext {
+  repoPath: string;
+  mergeLogPath: string;
+  onProgress: (phase: MergePhase, detail?: string) => void;
+  state: MergeRunState;
+  branchesToMerge: string[];
+  preRun?: () => Promise<void>;
+}
+
+function buildMergeRun(ctx: MergeRunContext): MergeRun {
   let cancelled = false;
   let verifyProcess: ChildProcess | null = null;
-
-  const state: MergeRunState = {
-    mergeRunId: `merge-${Date.now()}`,
-    phase: 'tagging',
-    preMergeTag: `workspace-pre-merge-${Date.now()}`,
-    branchOrder: opts.branchOrder,
-    mergedBranches: [],
-    verifyCommand: opts.verifyCommand,
-    startedAt: new Date().toISOString(),
-    completedAt: null,
-  };
+  const { state } = ctx;
 
   function transition(phase: MergePhase, detail?: string): void {
     state.phase = phase;
-    opts.onProgress(phase, detail);
+    ctx.onProgress(phase, detail);
   }
 
   async function revert(reason: string): Promise<MergeRunState> {
     state.error = reason;
     try {
-      await gitExec(opts.repoPath, ['reset', '--hard', state.preMergeTag]);
+      await gitExec(ctx.repoPath, ['reset', '--hard', state.preMergeTag]);
     } catch {}
     state.completedAt = new Date().toISOString();
     transition('reverted', reason);
     try {
-      appendMergeLog(opts.mergeLogPath, `Reverted to ${state.preMergeTag}: ${reason}`);
+      appendMergeLog(ctx.mergeLogPath, `Reverted to ${state.preMergeTag}: ${reason}`);
     } catch {}
     return state;
   }
-
-  const promise = (async (): Promise<MergeRunState> => {
-    try {
-      transition('tagging');
-      await gitExec(opts.repoPath, ['tag', state.preMergeTag]);
-      appendMergeLog(opts.mergeLogPath, `Created pre-merge tag: ${state.preMergeTag}`);
-
-      if (cancelled) return await revert('Cancelled');
-
-      transition('merging');
-      for (const branch of opts.branchOrder) {
-        if (cancelled) return await revert('Cancelled');
-
-        try {
-          await gitExec(opts.repoPath, ['merge', branch, '--no-edit']);
-          state.mergedBranches.push(branch);
-          appendMergeLog(opts.mergeLogPath, `Merged ${branch} cleanly`);
-        } catch {
-          transition('resolving', `Conflict merging ${branch}`);
-          const result = await tryAutoResolve(opts.repoPath, opts.mergeLogPath);
-          if (result.resolved) {
-            state.mergedBranches.push(branch);
-          } else {
-            try { await gitExec(opts.repoPath, ['merge', '--abort']); } catch {}
-            return await revert(`Semantic conflict merging ${branch} — escalate to human`);
-          }
-        }
-      }
-
-      if (cancelled) return await revert('Cancelled');
-
-      transition('testing');
-      const testPassed = await runVerify(opts.repoPath, opts.verifyCommand);
-
-      if (cancelled) return await revert('Cancelled');
-
-      if (!testPassed) {
-        return await revert('Verify command failed');
-      }
-
-      state.completedAt = new Date().toISOString();
-      transition('complete');
-      appendMergeLog(opts.mergeLogPath, 'Merge completed successfully');
-      return state;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return await revert(msg);
-    }
-  })();
 
   function runVerify(repoPath: string, command: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -229,6 +186,53 @@ export function createMergeRun(opts: MergeRunOptions): MergeRun {
     });
   }
 
+  const promise = (async (): Promise<MergeRunState> => {
+    try {
+      if (ctx.preRun) await ctx.preRun();
+
+      if (ctx.branchesToMerge.length > 0) {
+        transition('merging');
+        for (const branch of ctx.branchesToMerge) {
+          if (cancelled) return await revert('Cancelled');
+
+          try {
+            await gitExec(ctx.repoPath, ['merge', branch, '--no-edit']);
+            state.mergedBranches.push(branch);
+            appendMergeLog(ctx.mergeLogPath, `Merged ${branch} cleanly`);
+          } catch {
+            transition('resolving', `Conflict merging ${branch}`);
+            const result = await tryAutoResolve(ctx.repoPath, ctx.mergeLogPath);
+            if (result.resolved) {
+              state.mergedBranches.push(branch);
+            } else {
+              try { await gitExec(ctx.repoPath, ['merge', '--abort']); } catch {}
+              return await revert(`Semantic conflict merging ${branch} — escalate to human`);
+            }
+          }
+        }
+      }
+
+      if (cancelled) return await revert('Cancelled');
+
+      transition('testing');
+      const testPassed = await runVerify(ctx.repoPath, state.verifyCommand);
+
+      if (cancelled) return await revert('Cancelled');
+
+      if (!testPassed) {
+        return await revert('Verify command failed');
+      }
+
+      state.completedAt = new Date().toISOString();
+      transition('complete');
+      appendMergeLog(ctx.mergeLogPath, 'Merge completed successfully');
+      return state;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return await revert(msg);
+    }
+  })();
+
   return {
     get state() { return state; },
     promise,
@@ -243,4 +247,59 @@ export function createMergeRun(opts: MergeRunOptions): MergeRun {
       }
     },
   };
+}
+
+export function createMergeRun(opts: MergeRunOptions): MergeRun {
+  const state: MergeRunState = {
+    mergeRunId: `merge-${Date.now()}`,
+    phase: 'tagging',
+    preMergeTag: `workspace-pre-merge-${Date.now()}`,
+    branchOrder: opts.branchOrder,
+    mergedBranches: [],
+    verifyCommand: opts.verifyCommand,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+  };
+
+  return buildMergeRun({
+    repoPath: opts.repoPath,
+    mergeLogPath: opts.mergeLogPath,
+    onProgress: opts.onProgress,
+    state,
+    branchesToMerge: opts.branchOrder,
+    async preRun() {
+      state.phase = 'tagging';
+      opts.onProgress('tagging');
+      await gitExec(opts.repoPath, ['tag', state.preMergeTag]);
+      appendMergeLog(opts.mergeLogPath, `Created pre-merge tag: ${state.preMergeTag}`);
+    },
+  });
+}
+
+export function resumeMergeRun(opts: ResumeMergeRunOptions): MergeRun {
+  const prev = opts.previousState;
+  const remaining = prev.branchOrder.filter((b) => !prev.mergedBranches.includes(b));
+
+  const state: MergeRunState = {
+    mergeRunId: `merge-resume-${Date.now()}`,
+    phase: 'merging',
+    preMergeTag: prev.preMergeTag,
+    branchOrder: prev.branchOrder,
+    mergedBranches: [...prev.mergedBranches],
+    verifyCommand: prev.verifyCommand,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+  };
+
+  return buildMergeRun({
+    repoPath: opts.repoPath,
+    mergeLogPath: opts.mergeLogPath,
+    onProgress: opts.onProgress,
+    state,
+    branchesToMerge: remaining,
+    async preRun() {
+      try { await gitExec(opts.repoPath, ['merge', '--abort']); } catch {}
+      appendMergeLog(opts.mergeLogPath, `Resuming merge from phase: ${prev.phase}, already merged: [${prev.mergedBranches.join(', ')}]`);
+    },
+  });
 }

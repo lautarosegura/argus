@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { createMergeRun, type MergePhase } from './merge-runner.js';
+import { createMergeRun, resumeMergeRun, type MergePhase, type MergeRunState } from './merge-runner.js';
 
 function git(repoPath: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd: repoPath, encoding: 'utf-8' }).trim();
@@ -268,6 +268,93 @@ describe('merge runner — trivial conflict auto-resolve', () => {
     const log = fs.readFileSync(logPath, 'utf-8');
     expect(log).toMatch(/auto-resolv/i);
     expect(log).toMatch(/shared\.ts/);
+  });
+});
+
+describe('merge runner — resume', () => {
+  it('resumes from interrupted merge skipping already-merged branches', async () => {
+    git(repoDir, 'checkout', '-b', 'worker-1');
+    fs.writeFileSync(path.join(repoDir, 'file-a.ts'), 'export const a = 1;\n');
+    git(repoDir, 'add', '.');
+    git(repoDir, 'commit', '-m', 'add file-a');
+
+    git(repoDir, 'checkout', 'main');
+    git(repoDir, 'checkout', '-b', 'worker-2');
+    fs.writeFileSync(path.join(repoDir, 'file-b.ts'), 'export const b = 2;\n');
+    git(repoDir, 'add', '.');
+    git(repoDir, 'commit', '-m', 'add file-b');
+
+    git(repoDir, 'checkout', 'main');
+
+    git(repoDir, 'tag', 'workspace-pre-merge-test');
+    git(repoDir, 'merge', 'worker-1', '--no-edit');
+
+    const previousState: MergeRunState = {
+      mergeRunId: 'merge-old',
+      phase: 'merging',
+      preMergeTag: 'workspace-pre-merge-test',
+      branchOrder: ['worker-1', 'worker-2'],
+      mergedBranches: ['worker-1'],
+      verifyCommand: 'true',
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+    };
+
+    const phases: MergePhase[] = [];
+    const run = resumeMergeRun({
+      repoPath: repoDir,
+      mergeLogPath: mergeLogPath(),
+      onProgress: (phase) => { phases.push(phase); },
+      previousState,
+    });
+
+    const result = await run.promise;
+
+    expect(result.phase).toBe('complete');
+    expect(result.mergedBranches).toEqual(['worker-1', 'worker-2']);
+    expect(phases).not.toContain('tagging');
+    expect(phases).toContain('merging');
+    expect(phases).toContain('complete');
+
+    expect(fs.existsSync(path.join(repoDir, 'file-a.ts'))).toBe(true);
+    expect(fs.existsSync(path.join(repoDir, 'file-b.ts'))).toBe(true);
+  });
+
+  it('resumes from testing phase and reaches complete', async () => {
+    git(repoDir, 'checkout', '-b', 'worker-1');
+    fs.writeFileSync(path.join(repoDir, 'file-a.ts'), 'export const a = 1;\n');
+    git(repoDir, 'add', '.');
+    git(repoDir, 'commit', '-m', 'add file-a');
+
+    git(repoDir, 'checkout', 'main');
+    git(repoDir, 'tag', 'workspace-pre-merge-test');
+    git(repoDir, 'merge', 'worker-1', '--no-edit');
+
+    const previousState: MergeRunState = {
+      mergeRunId: 'merge-old',
+      phase: 'testing',
+      preMergeTag: 'workspace-pre-merge-test',
+      branchOrder: ['worker-1'],
+      mergedBranches: ['worker-1'],
+      verifyCommand: 'true',
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+    };
+
+    const phases: MergePhase[] = [];
+    const run = resumeMergeRun({
+      repoPath: repoDir,
+      mergeLogPath: mergeLogPath(),
+      onProgress: (phase) => { phases.push(phase); },
+      previousState,
+    });
+
+    const result = await run.promise;
+
+    expect(result.phase).toBe('complete');
+    expect(phases).toContain('testing');
+    expect(phases).not.toContain('tagging');
+    expect(phases).not.toContain('merging');
   });
 });
 
