@@ -1,9 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createPane, type Pane } from './pane.js';
-import { ClaudeAdapter } from './claude-adapter.js';
+import { createPane } from './pane.js';
 import type { AdapterEvent, IPty, AdapterContext } from './adapter-types.js';
 import { MAX_PARSE_BUFFER_BYTES } from './adapter-types.js';
 

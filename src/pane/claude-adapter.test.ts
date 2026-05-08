@@ -12,7 +12,7 @@ function loadFixture(name: string): string {
   return fs.readFileSync(path.join(FIXTURES, `${name}.ndjson`), 'utf-8');
 }
 
-function createFakePty(fixture: string): IPty & { written: string[] } {
+function createFakePty(fixture: string, exitCode = 0): IPty & { written: string[] } {
   const dataCallbacks: ((data: string) => void)[] = [];
   const exitCallbacks: ((e: { exitCode: number }) => void)[] = [];
   const written: string[] = [];
@@ -32,41 +32,6 @@ function createFakePty(fixture: string): IPty & { written: string[] } {
     kill() {},
   };
 
-  // Schedule fixture replay after start
-  queueMicrotask(() => {
-    const lines = fixture.split('\n').filter((l) => l.trim());
-    for (const line of lines) {
-      for (const cb of dataCallbacks) {
-        cb(line + '\n');
-      }
-    }
-    // Simulate process exit after all data
-    queueMicrotask(() => {
-      for (const cb of exitCallbacks) {
-        cb({ exitCode: 0 });
-      }
-    });
-  });
-
-  return pty;
-}
-
-function createErrorExitPty(fixture: string): IPty {
-  const dataCallbacks: ((data: string) => void)[] = [];
-  const exitCallbacks: ((e: { exitCode: number }) => void)[] = [];
-
-  const pty: IPty = {
-    pid: 12345,
-    onData(cb) {
-      dataCallbacks.push(cb);
-    },
-    onExit(cb) {
-      exitCallbacks.push(cb);
-    },
-    write() {},
-    kill() {},
-  };
-
   queueMicrotask(() => {
     const lines = fixture.split('\n').filter((l) => l.trim());
     for (const line of lines) {
@@ -76,7 +41,7 @@ function createErrorExitPty(fixture: string): IPty {
     }
     queueMicrotask(() => {
       for (const cb of exitCallbacks) {
-        cb({ exitCode: 1 });
+        cb({ exitCode });
       }
     });
   });
@@ -225,7 +190,7 @@ describe('ClaudeAdapter', () => {
     it('emits an error event and state→dead on non-zero exit', async () => {
       const adapter = new ClaudeAdapter();
       const fixture = loadFixture('error');
-      const pty = createErrorExitPty(fixture);
+      const pty = createFakePty(fixture, 1);
       const events = collectEvents(adapter);
       adapter.start(pty, CTX);
       const result = await events;

@@ -1,4 +1,4 @@
-import type { AdapterEvent, IPty, AdapterContext } from './adapter-types.js';
+import type { IPty, AdapterContext } from './adapter-types.js';
 import { createPane, type Pane, type PaneEventNotification } from './pane.js';
 import type net from 'node:net';
 
@@ -9,7 +9,22 @@ export interface PaneManager {
   removePane(paneId: string): void;
   attach(workspaceId: string, socket: net.Socket): void;
   detach(workspaceId: string, socket: net.Socket): void;
-  formatNotification(n: PaneEventNotification): object;
+}
+
+function formatNotification(n: PaneEventNotification): object {
+  const event = { ...n.event } as Record<string, unknown>;
+  if (n.event.kind === 'output') {
+    event.bytes = n.event.bytes.toString('base64');
+  }
+  return {
+    jsonrpc: '2.0',
+    method: 'pane.event',
+    params: {
+      workspaceId: n.workspaceId,
+      paneId: n.paneId,
+      event,
+    },
+  };
 }
 
 export function createPaneManager(): PaneManager {
@@ -24,8 +39,7 @@ export function createPaneManager(): PaneManager {
         const subs = subscriptions.get(notification.workspaceId);
         if (!subs) return;
 
-        const msg = this.formatNotification(notification);
-        const encoded = JSON.stringify(msg) + '\n';
+        const encoded = JSON.stringify(formatNotification(notification)) + '\n';
         for (const socket of subs) {
           socket.write(encoded);
         }
@@ -52,16 +66,15 @@ export function createPaneManager(): PaneManager {
     },
 
     attach(workspaceId, socket) {
-      let subs = subscriptions.get(workspaceId);
-      if (!subs) {
-        subs = new Set();
+      const subs = subscriptions.get(workspaceId) ?? new Set<net.Socket>();
+      if (!subscriptions.has(workspaceId)) {
         subscriptions.set(workspaceId, subs);
       }
       subs.add(socket);
 
       socket.on('close', () => {
-        subs!.delete(socket);
-        if (subs!.size === 0) {
+        subs.delete(socket);
+        if (subs.size === 0) {
           subscriptions.delete(workspaceId);
         }
       });
@@ -74,22 +87,6 @@ export function createPaneManager(): PaneManager {
       if (subs.size === 0) {
         subscriptions.delete(workspaceId);
       }
-    },
-
-    formatNotification(n) {
-      const event = { ...n.event } as Record<string, unknown>;
-      if (n.event.kind === 'output') {
-        event.bytes = (n.event as { bytes: Buffer }).bytes.toString('base64');
-      }
-      return {
-        jsonrpc: '2.0',
-        method: 'pane.event',
-        params: {
-          workspaceId: n.workspaceId,
-          paneId: n.paneId,
-          event,
-        },
-      };
     },
   };
 }

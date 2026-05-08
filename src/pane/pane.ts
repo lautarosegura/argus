@@ -68,8 +68,6 @@ export function createPane(opts: CreatePaneOptions): Pane {
     notify(event);
   });
 
-  adapter.on('exit', () => {});
-
   adapter.start(pty, ctx);
 
   return {

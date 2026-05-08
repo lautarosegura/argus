@@ -1,7 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { createPaneManager } from './pane-manager.js';
 import type { IPty, AdapterContext } from './adapter-types.js';
-import { PassThrough } from 'node:stream';
 import net from 'node:net';
 import { EventEmitter } from 'node:events';
 

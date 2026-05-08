@@ -21,7 +21,7 @@ import {
 import { createWorkspaceRegistry, type WorkspaceRegistry } from '../workspace/workspace-registry.js';
 import type { CreateWorkspaceParams } from '../workspace/workspace-types.js';
 import { provisionWorkspace, cleanWorkspace } from '../workspace/worktree-manager.js';
-import { createPaneManager, type PaneManager } from '../pane/pane-manager.js';
+import { createPaneManager } from '../pane/pane-manager.js';
 
 export interface DaemonOptions {
   pipePath: string;
