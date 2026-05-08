@@ -406,7 +406,6 @@ body {
   display: flex;
   align-items: center;
   padding: 16px 20px;
-  gap: 0;
 }
 
 .merge-phase-step {

@@ -1,4 +1,5 @@
 const MERGE_PHASES = ['tagging', 'merging', 'resolving', 'testing', 'complete', 'reverted'];
+const DISPLAY_PHASES = ['tagging', 'merging', 'testing', 'complete'];
 
 class MergePane {
   /**
@@ -62,11 +63,10 @@ class MergePane {
     const pipeline = document.createElement('div');
     pipeline.className = 'merge-pane-pipeline';
 
-    const displayPhases = ['tagging', 'merging', 'testing', 'complete'];
     this._phaseEls = {};
 
-    for (let i = 0; i < displayPhases.length; i++) {
-      const phase = displayPhases[i];
+    for (let i = 0; i < DISPLAY_PHASES.length; i++) {
+      const phase = DISPLAY_PHASES[i];
       const step = document.createElement('div');
       step.className = 'merge-phase-step';
 
@@ -82,7 +82,7 @@ class MergePane {
       this._phaseEls[phase] = { step, indicator, label };
       pipeline.appendChild(step);
 
-      if (i < displayPhases.length - 1) {
+      if (i < DISPLAY_PHASES.length - 1) {
         const connector = document.createElement('div');
         connector.className = 'merge-phase-connector';
         pipeline.appendChild(connector);
@@ -110,9 +110,8 @@ class MergePane {
     this._cancelBtn.style.display = isTerminal ? 'none' : '';
 
     const phaseIndex = MERGE_PHASES.indexOf(phase);
-    const displayPhases = ['tagging', 'merging', 'testing', 'complete'];
 
-    for (const dp of displayPhases) {
+    for (const dp of DISPLAY_PHASES) {
       const els = this._phaseEls[dp];
       if (!els) continue;
 
@@ -167,6 +166,7 @@ class MergePane {
   updatePhase(phase, detail) {
     this._phase = phase;
     if (detail !== undefined) this._detail = detail;
+    if (phase === 'reverted' && detail) this._error = detail;
     this._updateDisplay();
   }
 

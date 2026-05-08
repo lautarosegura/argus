@@ -126,9 +126,6 @@ window.argus.onNotification((method, params) => {
   }
   if (method === 'merge.progress' && mergePane && params.workspaceId === currentWorkspaceId) {
     mergePane.updatePhase(params.phase, params.detail);
-    if (params.phase === 'reverted' && params.detail) {
-      mergePane.setError(params.detail);
-    }
   }
   if (method === 'daemon.shuttingDown') {
     connectionStatus.textContent = 'daemon shutting down';
