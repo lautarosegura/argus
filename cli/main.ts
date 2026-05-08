@@ -6,6 +6,7 @@ import { list } from './commands/list.js';
 import { logs } from './commands/logs.js';
 import { open } from './commands/open.js';
 import { sentinel } from './commands/sentinel.js';
+import { stats } from './commands/stats.js';
 
 const argv0 = path.basename(process.argv[1] ?? '');
 const args = process.argv.slice(2);
@@ -44,8 +45,12 @@ switch (command) {
     await open(args.slice(1));
     break;
 
+  case 'stats':
+    await stats(args.slice(1));
+    break;
+
   default:
     console.error(`Unknown command: ${command ?? '(none)'}`);
-    console.error(`Available commands: init, list, clean, logs, open, daemon-status`);
+    console.error(`Available commands: init, list, clean, logs, open, stats, daemon-status`);
     process.exit(1);
 }
