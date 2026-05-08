@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+import type { DecideInput, SandboxDecision } from '../sandbox/sandbox.js';
+
+export type SandboxFn = (input: DecideInput) => SandboxDecision;
 
 export type LivePaneState =
   | 'idle'
