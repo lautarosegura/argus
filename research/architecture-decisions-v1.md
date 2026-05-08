@@ -622,3 +622,57 @@ Dos test runners, divididos por runtime de producción:
 - Dos configs (`vitest.config.ts` + `bunfig.toml`).
 - Dos pasos en CI.
 - Disciplina sobre dónde vive cada test (resuelta por la regla del directorio).
+
+---
+
+## 20. Installer toolchain y postura de signing (A20)
+
+### Decisión
+
+- **Toolchain**: Inno Setup (script `installer/argus.iss`).
+- **Signing**: sin firma en v0.1.
+- **Ubicación**: per-user en `%LOCALAPPDATA%\Programs\Argus` (`{userpf}\Argus` en Inno).
+- **PATH**: el instalador agrega `%LOCALAPPDATA%\Programs\Argus\bin` al `PATH` del usuario (vía `HKCU\Environment`). Tanto `argus.exe` como `workspace.exe` viven en ese subdirectorio.
+- **Shortcuts**: solo Start menu, apuntando a `Argus.exe`.
+- **Uninstaller**: limpia el directorio de instalación y la entrada del `PATH`. **No** toca `%LOCALAPPDATA%\Argus\` (state, logs, metrics) — esos datos persisten cross-reinstall, consistente con A17.
+- **Distribución**: artefacto `Argus-Setup.exe` producido por GitHub Actions (`.github/workflows/release.yml`) cuando se pushea un tag `v*`.
+
+### Por qué Inno Setup
+
+- Script declarativo de ~80 líneas, un único `.exe` autocontenido como salida.
+- Soporte nativo para PATH manipulation, Start menu shortcuts, y per-user install sin UAC.
+- Maduro (1997+), gratis, sin lock-in: si v0.2 quiere migrar a Squirrel para auto-updates, los assets producidos por la build pipeline (daemon + Electron app + CLIs) son agnósticos al toolchain.
+- Alternativas descartadas:
+  - **Squirrel.Windows**: auto-updater built-in pero asume layout Electron-único; meter `argusd` y dos CLIs requiere hooks custom. Reevaluar en v0.2 cuando A11 (auto-updater) entre en scope.
+  - **WiX**: sobreingeniería para el caso (XML verboso, MSI necesario solo para distribución corporativa).
+  - **NSIS**: capacidad equivalente a Inno con peor lenguaje de scripting; sin razón sobre Inno.
+
+### Por qué sin firma en v0.1
+
+- v0.1 es para dogfooding personal del autor (foundations §5.3, dos semanas). El warning de SmartScreen es bypassable con "More info → Run anyway" y el costo de un cert OV/EV (USD 200-600/año) no se justifica sobre una sola máquina.
+- Self-signing produce **el mismo** warning que sin firmar (Windows no confía en CAs que no están en su store), entonces ejercitar el pipeline de signing temprano da poco valor.
+- En v0.2, si la app sale al público, se compra cert OV (reputación SmartScreen gana con descargas) o EV (reputación inmediata, requiere token físico).
+
+### Per-user vs machine-wide
+
+- `%LOCALAPPDATA%\Programs\Argus` evita UAC en install y uninstall.
+- Coincide con la ubicación de state/logs/metrics (`%LOCALAPPDATA%\Argus\`), manteniendo el footprint del usuario en un solo árbol.
+- Sigue la convención moderna (VS Code, Discord, Slack). Microsoft está empujando per-user install para apps modernas.
+- Single-user es asunción válida en v0.1 (foundations §5.1).
+
+### Lo que la build pipeline tiene que producir antes del instalador
+
+El `.iss` asume que estos artefactos ya existen en `dist/` cuando se invoca `ISCC.exe`:
+
+- `dist/daemon/argusd.exe` — daemon Node compilado (TODO: definir herramienta de compilación; candidatos: `pkg`, `node --experimental-sea-config`, o Bun como segundo runtime).
+- `dist/gui/Argus.exe` + recursos — Electron app empaquetada (candidato: `electron-builder` con `target: dir`).
+- `dist/cli/argus.exe` — Bun-compiled CLI (per A8).
+- `dist/cli/workspace.exe` — copia bit-for-bit de `argus.exe` con nombre distinto (per A8, dispatch por `argv[0]`).
+
+Estos pasos quedan como TODO explícito en el workflow. La compilación real y el smoke test en VM limpia (acceptance criterion del issue #17) se hacen manualmente la primera vez para validar el pipeline antes de marcarlo automatizado.
+
+### Costo aceptado
+
+- Un script `.iss` extra que mantener cuando cambien los binarios distribuidos.
+- Un workflow que solo corre en push de tag (no en cada PR), para no gastar minutos de CI compilando un instalador que nadie va a usar.
+- Cert signing pendiente para v0.2 — usuarios externos van a ver SmartScreen warnings hasta entonces.

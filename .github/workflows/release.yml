@@ -1,0 +1,97 @@
+name: Release installer
+
+# Builds Argus-Setup.exe with Inno Setup when a v* tag is pushed.
+# See research/architecture-decisions-v1.md §A20 for the toolchain rationale.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to embed in installer (e.g. 0.1.0)'
+        required: true
+        default: '0.1.0-dev'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'push') {
+            $v = '${{ github.ref_name }}' -replace '^v',''
+          } else {
+            $v = '${{ github.event.inputs.version }}'
+          }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Version: $v"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: npm ci
+
+      # ---------------------------------------------------------------------
+      # TODO(A20): wire up the real build steps for each artifact.
+      # The Inno script (installer/argus.iss) consumes:
+      #   dist/daemon/argusd.exe
+      #   dist/gui/Argus.exe (+ resources)
+      #   dist/cli/argus.exe
+      #   dist/cli/workspace.exe
+      #
+      # Until the build commands are implemented, this job stages placeholder
+      # files so the installer still compiles end-to-end and we can validate
+      # the packaging path. Replace each placeholder step below as the build
+      # pipeline for that artifact lands.
+      # ---------------------------------------------------------------------
+      - name: Stage placeholder build outputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/daemon, dist/gui, dist/cli, dist/installer | Out-Null
+          # TODO: replace with `node --experimental-sea-config` / pkg / bun-compile.
+          Set-Content -Path dist/daemon/argusd.exe -Value 'placeholder' -Encoding Byte
+          # TODO: replace with electron-builder output (Argus.exe + resources/).
+          Set-Content -Path dist/gui/Argus.exe -Value 'placeholder' -Encoding Byte
+          # TODO: replace with `bun build --compile` of cli/main.ts (per A8).
+          Set-Content -Path dist/cli/argus.exe -Value 'placeholder' -Encoding Byte
+          Copy-Item dist/cli/argus.exe dist/cli/workspace.exe
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" installer/argus.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Argus-Setup
+          path: dist/installer/Argus-Setup.exe
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/installer/Argus-Setup.exe
+          draft: true
+          generate_release_notes: true
