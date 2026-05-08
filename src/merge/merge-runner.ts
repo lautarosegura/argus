@@ -117,14 +117,17 @@ function resolveConflictMarkers(content: string): string {
   return result.join('\n');
 }
 
+async function getConflictFiles(repoPath: string): Promise<string[]> {
+  const output = await gitExec(repoPath, ['diff', '--name-only', '--diff-filter=U']);
+  return output ? output.split('\n').filter(Boolean) : [];
+}
+
 async function tryAutoResolve(
   repoPath: string,
   logPath: string,
 ): Promise<{ resolved: boolean; files: string[] }> {
-  const conflictOutput = await gitExec(repoPath, ['diff', '--name-only', '--diff-filter=U']);
-  if (!conflictOutput) return { resolved: false, files: [] };
-
-  const files = conflictOutput.split('\n').filter(Boolean);
+  const files = await getConflictFiles(repoPath);
+  if (files.length === 0) return { resolved: false, files: [] };
   const resolvedFiles: string[] = [];
 
   for (const file of files) {
@@ -151,11 +154,6 @@ async function tryAutoResolve(
   }
 
   return { resolved: true, files: resolvedFiles };
-}
-
-async function getConflictFiles(repoPath: string): Promise<string[]> {
-  const output = await gitExec(repoPath, ['diff', '--name-only', '--diff-filter=U']);
-  return output ? output.split('\n').filter(Boolean) : [];
 }
 
 async function trySubAgentResolve(
@@ -203,23 +201,22 @@ async function trySubAgentResolve(
     return false;
   }
 
-  const result = raceResult;
-  entry.subAgentId = result.subAgentId;
-  entry.cli = result.cli;
+  entry.subAgentId = raceResult.subAgentId;
+  entry.cli = raceResult.cli;
   entry.completedAt = new Date().toISOString();
 
-  if (result.resolved && result.resolvedFiles.length > 0) {
-    for (const file of result.resolvedFiles) {
+  if (raceResult.resolved && raceResult.resolvedFiles.length > 0) {
+    for (const file of raceResult.resolvedFiles) {
       await gitExec(repoPath, ['add', file]);
     }
     await gitExec(repoPath, ['commit', '--no-edit']);
     entry.status = 'resolved';
-    appendMergeLog(logPath, `Sub-agent ${result.subAgentId} (${result.cli}) resolved: ${result.resolvedFiles.join(', ')}`);
+    appendMergeLog(logPath, `Sub-agent ${raceResult.subAgentId} (${raceResult.cli}) resolved: ${raceResult.resolvedFiles.join(', ')}`);
     return true;
   }
 
   entry.status = 'failed';
-  appendMergeLog(logPath, `Sub-agent ${result.subAgentId} (${result.cli}) failed to resolve ${conflictFiles.join(', ')} on branch ${branch}`);
+  appendMergeLog(logPath, `Sub-agent ${raceResult.subAgentId} (${raceResult.cli}) failed to resolve ${conflictFiles.join(', ')} on branch ${branch}`);
   return false;
 }
 

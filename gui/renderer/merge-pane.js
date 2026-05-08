@@ -188,17 +188,18 @@ class MergePane {
 
     let entry = this._subAgents.get(subAgentId);
     if (!entry) {
-      entry = document.createElement('div');
-      entry.className = 'merge-sub-agent-entry';
+      const el = document.createElement('div');
+      el.className = 'merge-sub-agent-entry';
       const badge = document.createElement('span');
       badge.className = 'badge badge-thinking';
       badge.textContent = subAgentId;
-      entry.appendChild(badge);
+      el.appendChild(badge);
       const text = document.createElement('span');
       text.className = 'merge-sub-agent-detail';
-      entry.appendChild(text);
-      this._subAgentsEl.appendChild(entry);
-      this._subAgents.set(subAgentId, { el: entry, badge, text });
+      el.appendChild(text);
+      this._subAgentsEl.appendChild(el);
+      entry = { el, badge, text };
+      this._subAgents.set(subAgentId, entry);
     }
 
     entry.text.textContent = detail;

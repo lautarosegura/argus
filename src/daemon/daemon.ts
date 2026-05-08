@@ -413,7 +413,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
             : 'npm test';
           const mergeLogPath = path.join(state.repoPath, '.workspace', 'merge-log.md');
 
-          const preferredCli = (state.agentRatio[0]?.cli === 'codex' ? 'codex' : 'claude') as 'claude' | 'codex';
+          const preferredCli = state.agentRatio[0]?.cli === 'codex' ? 'codex' : 'claude';
 
           let mergeRunId = '';
           const run = createMergeRun({
