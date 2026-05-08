@@ -100,8 +100,10 @@ class PlanEditor {
       this._saveBtn.textContent = 'Saved';
       this._approveBtn.disabled = !this._textarea.value.trim();
       setTimeout(() => {
-        if (this._saveBtn) this._saveBtn.textContent = 'Save';
-        if (this._saveBtn) this._saveBtn.disabled = false;
+        if (this._saveBtn) {
+          this._saveBtn.textContent = 'Save';
+          this._saveBtn.disabled = false;
+        }
       }, 1500);
     } catch (err) {
       this._errorEl.textContent = err.message || 'Failed to save plan';

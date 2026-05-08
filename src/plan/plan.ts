@@ -40,7 +40,6 @@ function assignProp(target: Partial<PlanTask>, key: string, value: string): void
 function parseTasksFromYaml(yaml: string): PlanTask[] {
   const lines = yaml.split('\n');
   let foundTasks = false;
-  let tasksIsEmpty = false;
 
   const tasks: PlanTask[] = [];
   let current: Partial<PlanTask> | null = null;
@@ -48,7 +47,6 @@ function parseTasksFromYaml(yaml: string): PlanTask[] {
   for (const line of lines) {
     if (line.match(/^tasks:\s*\[\]\s*$/)) {
       foundTasks = true;
-      tasksIsEmpty = true;
       break;
     }
     if (line.match(/^tasks:\s*$/)) {
@@ -92,7 +90,7 @@ function validateTask(partial: Partial<PlanTask>): PlanTask {
   return {
     id: partial.id,
     assignedTo: partial.assignedTo,
-    dependsOn: (partial.dependsOn as unknown as string[] | undefined) ?? [],
+    dependsOn: partial.dependsOn ?? [],
   };
 }
 
