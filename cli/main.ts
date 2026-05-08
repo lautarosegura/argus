@@ -1,0 +1,26 @@
+import path from 'node:path';
+import { daemonStatus } from './commands/daemon-status.js';
+
+const argv0 = path.basename(process.argv[1] ?? '');
+const args = process.argv.slice(2);
+
+const isWorkspaceCli = argv0 === 'workspace' || argv0 === 'workspace.exe';
+
+if (isWorkspaceCli) {
+  console.error(`workspace CLI only supports: done, blocked, status`);
+  console.error(`For admin commands, use argus.`);
+  process.exit(1);
+}
+
+const command = args[0];
+
+switch (command) {
+  case 'daemon-status':
+    await daemonStatus();
+    break;
+
+  default:
+    console.error(`Unknown command: ${command ?? '(none)'}`);
+    console.error(`Available commands: daemon-status`);
+    process.exit(1);
+}
