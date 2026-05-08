@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPipeClient as createBasePipeClient, type PipeClient } from '../src/daemon/pipe-client.js';
@@ -11,12 +12,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function findInstalledDaemon(): string | null {
+  // In production, argus.exe and argusd.exe are co-located in {app}\bin.
+  // process.execPath is the running binary (argus.exe), so the daemon lives next to it.
+  const cliDir = path.dirname(process.execPath);
+  const candidate = path.join(cliDir, process.platform === 'win32' ? 'argusd.exe' : 'argusd');
+  return existsSync(candidate) ? candidate : null;
+}
+
 function spawnDaemon(pipePath: string): void {
-  const child = spawn(process.execPath, ['--import', 'tsx', DAEMON_MAIN], {
-    env: { ...process.env, ARGUS_PIPE: pipePath },
-    stdio: 'ignore',
-    detached: true,
-  });
+  const env = { ...process.env, ARGUS_PIPE: pipePath };
+  const installed = findInstalledDaemon();
+  const child = installed
+    ? spawn(installed, [], { env, stdio: 'ignore', detached: true })
+    : spawn(process.execPath, ['--import', 'tsx', DAEMON_MAIN], {
+        env,
+        stdio: 'ignore',
+        detached: true,
+      });
   child.unref();
 }
 

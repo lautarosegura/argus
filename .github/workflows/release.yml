@@ -49,6 +49,15 @@ jobs:
       - name: Compile TypeScript
         run: npx tsc -p tsconfig.build.json
 
+      - name: Stage GUI static assets
+        # Copy preload.js and renderer/ next to the compiled main.js so
+        # __dirname resolution at runtime finds them (gui/main.ts uses
+        # path.join(__dirname, 'renderer', 'index.html')).
+        shell: pwsh
+        run: |
+          Copy-Item gui/preload.js dist/build/gui/preload.js -Force
+          Copy-Item gui/renderer dist/build/gui/renderer -Recurse -Force
+
       - name: Build daemon (argusd.exe)
         run: npx pkg dist/build/src/daemon/main.js --targets node22-win-x64 --output dist/daemon/argusd.exe
 
