@@ -5,10 +5,8 @@ import {
   type AdapterEvent,
   type IPty,
   type LivePaneState,
+  type SandboxFn,
 } from './adapter-types.js';
-import type { DecideInput, SandboxDecision } from '../sandbox/sandbox.js';
-
-export type SandboxFn = (input: DecideInput) => SandboxDecision;
 
 interface ClaudeContentBlock {
   type: string;

@@ -1,4 +1,4 @@
-import { ClaudeAdapter, type SandboxFn } from './claude-adapter.js';
+import { ClaudeAdapter } from './claude-adapter.js';
 import { CodexAdapter } from './codex-adapter.js';
 import type {
   Adapter,
@@ -6,6 +6,7 @@ import type {
   AdapterEvent,
   IPty,
   LivePaneState,
+  SandboxFn,
 } from './adapter-types.js';
 
 export interface PaneEventNotification {
@@ -40,7 +41,7 @@ function createAdapter(cliKind: string, sandbox?: SandboxFn): Adapter {
     case 'claude':
       return new ClaudeAdapter(sandbox);
     case 'codex':
-      return new CodexAdapter();
+      return new CodexAdapter(sandbox);
     default:
       throw new Error(`Unknown CLI kind: ${cliKind}`);
   }

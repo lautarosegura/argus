@@ -5,6 +5,7 @@ import {
   type AdapterEvent,
   type IPty,
   type LivePaneState,
+  type SandboxFn,
 } from './adapter-types.js';
 
 interface CodexContentPart {
@@ -38,12 +39,18 @@ interface CodexStreamEvent {
 export class CodexAdapter extends Adapter {
   readonly cliKind = 'codex' as const;
   private pty: IPty | null = null;
+  private ctx: AdapterContext | null = null;
   private buffer = '';
   private currentState: LivePaneState | null = null;
   private disposed = false;
 
-  start(pty: IPty, _ctx: AdapterContext): void {
+  constructor(private readonly sandbox?: SandboxFn) {
+    super();
+  }
+
+  start(pty: IPty, ctx: AdapterContext): void {
     this.pty = pty;
+    this.ctx = ctx;
 
     pty.onData((data: string) => {
       this.emit('event', { kind: 'output', bytes: Buffer.from(data) } satisfies AdapterEvent);
@@ -190,7 +197,8 @@ export class CodexAdapter extends Adapter {
   }
 
   private handleFunctionCall(event: CodexStreamEvent): void {
-    this.transitionState('toolUse');
+    const toolId = event.call_id ?? '';
+    const toolName = event.name ?? '';
 
     let args: unknown;
     try {
@@ -199,12 +207,65 @@ export class CodexAdapter extends Adapter {
       args = event.arguments;
     }
 
+    const { tool: sandboxTool, args: sandboxArgs } = this.normalizeSandboxInput(toolName, args);
+    const decision = this.sandbox && this.ctx
+      ? this.sandbox({
+          cli: this.cliKind,
+          tool: sandboxTool,
+          args: sandboxArgs,
+          worktreePath: this.ctx.worktreePath,
+          paneRole: this.ctx.paneRole,
+        })
+      : undefined;
+
+    this.transitionState('toolUse');
     this.emit('event', {
       kind: 'toolCall.requested',
-      id: event.call_id ?? '',
-      tool: event.name ?? '',
+      id: toolId,
+      tool: toolName,
       args,
     } satisfies AdapterEvent);
+
+    if (!decision) return;
+
+    if (decision.kind === 'allow') {
+      this.decideToolCall(toolId, 'allow');
+      return;
+    }
+
+    if (decision.kind === 'deny') {
+      this.emit('event', {
+        kind: 'error',
+        source: 'sandbox',
+        message: decision.reason,
+      } satisfies AdapterEvent);
+      this.decideToolCall(toolId, 'deny', decision.reason);
+      return;
+    }
+
+    this.transitionState('waitingPerm');
+    this.emit('event', {
+      kind: 'permissionRequest',
+      id: toolId,
+      what: `${toolName}: ${JSON.stringify(args)}`,
+      risk: decision.risk,
+    } satisfies AdapterEvent);
+  }
+
+  private normalizeSandboxInput(tool: string, args: unknown): { tool: string; args: unknown } {
+    const raw = (args ?? {}) as Record<string, unknown>;
+    switch (tool) {
+      case 'shell': {
+        const cmd = Array.isArray(raw.command) ? raw.command.join(' ') : (raw.command ?? '');
+        return { tool: 'Bash', args: { command: cmd } };
+      }
+      case 'read_file':
+        return { tool: 'Read', args: { file_path: raw.path ?? '' } };
+      case 'write_file':
+        return { tool: 'Write', args: { file_path: raw.path ?? '', content: raw.content } };
+      default:
+        return { tool, args };
+    }
   }
 
   private handleSessionComplete(event: CodexStreamEvent): void {
