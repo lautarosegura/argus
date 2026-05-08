@@ -7,6 +7,10 @@ productName: Argus
 copyright: Copyright (c) 2026 Argus
 asar: true
 
+# better-sqlite3 is consumed by argusd (pkg-bundled), not the GUI runtime.
+# Skip the @electron/rebuild step to avoid node-gyp pulling Python distutils.
+npmRebuild: false
+
 directories:
   output: dist/gui
 
