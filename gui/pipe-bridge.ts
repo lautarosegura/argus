@@ -22,6 +22,9 @@ export interface PipeBridge {
   updatePlan(workspaceId: string, content: string): Promise<void>;
   approvePlan(workspaceId: string): Promise<{ approvedAt: string; tasks: Array<{ id: string; assignedTo: string; dependsOn: string[] }> }>;
 
+  startMerge(workspaceId: string, verifyCommand?: string): Promise<{ mergeRunId: string }>;
+  cancelMerge(workspaceId: string): Promise<void>;
+
   onNotification(handler: (method: string, params: unknown) => void): void;
 }
 
@@ -109,6 +112,16 @@ export function createPipeBridge(pipePath: string): PipeBridge {
 
     async approvePlan(workspaceId) {
       return (await assertConnected().request('plan.approve', { workspaceId })) as { approvedAt: string; tasks: Array<{ id: string; assignedTo: string; dependsOn: string[] }> };
+    },
+
+    async startMerge(workspaceId, verifyCommand) {
+      const params: Record<string, string> = { workspaceId };
+      if (verifyCommand) params.verifyCommand = verifyCommand;
+      return (await assertConnected().request('merge.start', params)) as { mergeRunId: string };
+    },
+
+    async cancelMerge(workspaceId) {
+      await assertConnected().request('merge.cancel', { workspaceId });
     },
 
     onNotification(handler) {

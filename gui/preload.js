@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('argus', {
   getPlan: (workspaceId) => ipcRenderer.invoke('bridge:getPlan', workspaceId),
   updatePlan: (workspaceId, content) => ipcRenderer.invoke('bridge:updatePlan', workspaceId, content),
   approvePlan: (workspaceId) => ipcRenderer.invoke('bridge:approvePlan', workspaceId),
+  startMerge: (workspaceId, verifyCommand) => ipcRenderer.invoke('bridge:startMerge', workspaceId, verifyCommand),
+  cancelMerge: (workspaceId) => ipcRenderer.invoke('bridge:cancelMerge', workspaceId),
   isConnected: () => ipcRenderer.invoke('bridge:isConnected'),
   getNodeModulesPath: () => ipcRenderer.invoke('get:nodeModulesPath'),
 

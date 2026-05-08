@@ -373,6 +373,109 @@ body {
   padding: 0 12px 8px;
 }
 
+/* Merge pane */
+.merge-pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.merge-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.merge-pane-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.merge-pane-cancel {
+  padding: 4px 12px;
+  font-size: 11px;
+}
+
+.merge-pane-pipeline {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px;
+  gap: 0;
+}
+
+.merge-phase-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.merge-phase-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--border);
+  border: 2px solid var(--border);
+  transition: all 200ms;
+}
+
+.merge-phase-step.active .merge-phase-indicator {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(122, 162, 247, 0.5);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.merge-phase-step.past .merge-phase-indicator {
+  background: var(--green);
+  border-color: var(--green);
+}
+
+.merge-phase-step.failed .merge-phase-indicator {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.merge-phase-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.merge-phase-step.active .merge-phase-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.merge-phase-step.past .merge-phase-label {
+  color: var(--green);
+}
+
+.merge-phase-step.failed .merge-phase-label {
+  color: var(--red);
+}
+
+.merge-phase-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  margin: 0 8px;
+  margin-bottom: 20px;
+}
+
+.merge-pane-detail {
+  padding: 0 12px 10px;
+  font-size: 12px;
+}
+
 /* Connection status */
 .disconnected-banner {
   padding: 8px 16px;

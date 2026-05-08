@@ -122,6 +122,16 @@ function registerIpcHandlers(): void {
     return bridge.approvePlan(workspaceId);
   });
 
+  ipcMain.handle('bridge:startMerge', async (_e, workspaceId: string, verifyCommand?: string) => {
+    if (!bridge) throw new Error('Not connected');
+    return bridge.startMerge(workspaceId, verifyCommand);
+  });
+
+  ipcMain.handle('bridge:cancelMerge', async (_e, workspaceId: string) => {
+    if (!bridge) throw new Error('Not connected');
+    return bridge.cancelMerge(workspaceId);
+  });
+
   ipcMain.handle('bridge:isConnected', () => {
     return bridge?.isConnected() ?? false;
   });

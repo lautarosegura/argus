@@ -2,6 +2,8 @@
 let grid = null;
 /** @type {PlanEditor | null} */
 let planEditor = null;
+/** @type {MergePane | null} */
+let mergePane = null;
 const form = new WorkspaceForm();
 let currentWorkspaceId = null;
 
@@ -49,6 +51,10 @@ async function openWorkspace(id) {
       planEditor.dispose();
       planEditor = null;
     }
+    if (mergePane) {
+      mergePane.dispose();
+      mergePane = null;
+    }
 
     mainContent.innerHTML = '';
     mainContent.style.display = 'flex';
@@ -69,6 +75,15 @@ async function openWorkspace(id) {
       } catch {
         // Plan fetch failed — continue without plan editor
       }
+    }
+
+    if (workspace.mergeState) {
+      const mergeContainer = document.createElement('div');
+      mergeContainer.style.padding = '8px';
+      mainContent.appendChild(mergeContainer);
+
+      mergePane = new MergePane(mergeContainer);
+      mergePane.render(id, workspace.mergeState);
     }
 
     const gridContainer = document.createElement('div');
@@ -108,6 +123,12 @@ async function openWorkspace(id) {
 window.argus.onNotification((method, params) => {
   if (method === 'pane.event' && grid && params.workspaceId === currentWorkspaceId) {
     grid.handlePaneEvent(params.paneId, params.event);
+  }
+  if (method === 'merge.progress' && mergePane && params.workspaceId === currentWorkspaceId) {
+    mergePane.updatePhase(params.phase, params.detail);
+    if (params.phase === 'reverted' && params.detail) {
+      mergePane.setError(params.detail);
+    }
   }
   if (method === 'daemon.shuttingDown') {
     connectionStatus.textContent = 'daemon shutting down';
