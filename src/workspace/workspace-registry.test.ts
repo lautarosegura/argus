@@ -198,6 +198,7 @@ describe('workspace-registry schema migration', () => {
       name: 'migrated',
       createdAt: new Date().toISOString(),
       repoPath: '/tmp/repo',
+      intent: '',
       agentRatio: [{ cli: 'claude', count: 1 }],
       panes: [],
       plan: null,

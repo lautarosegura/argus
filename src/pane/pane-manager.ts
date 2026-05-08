@@ -16,6 +16,7 @@ export interface PaneManager {
   removePane(paneId: string): void;
   attach(workspaceId: string, socket: net.Socket): void;
   detach(workspaceId: string, socket: net.Socket): void;
+  broadcastNotification(workspaceId: string, method: string, params: Record<string, unknown>): void;
   reportSentinel(report: SentinelReport): void;
 }
 
@@ -89,6 +90,19 @@ export function createPaneManager(): PaneManager {
       subs.delete(socket);
       if (subs.size === 0) {
         subscriptions.delete(workspaceId);
+      }
+    },
+
+    broadcastNotification(workspaceId, method, params) {
+      const subs = subscriptions.get(workspaceId);
+      if (!subs) return;
+      const msg = JSON.stringify({
+        jsonrpc: '2.0',
+        method,
+        params,
+      }) + '\n';
+      for (const socket of subs) {
+        socket.write(msg);
       }
     },
 

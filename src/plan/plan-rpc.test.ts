@@ -278,4 +278,132 @@ describe('plan.approve JSON-RPC', () => {
     ).rejects.toThrow(/already approved/i);
     client.destroy();
   });
+
+  it('returns workerAssignments with built system prompts', async () => {
+    const repoDir = makeRepo();
+    const pipePath = tmpPipePath();
+    daemon = createDaemon({ pipePath, idleShutdownMs: 0, stateDir });
+    await daemon.start();
+
+    const wsId = await createWorkspaceWithPlan(pipePath, repoDir, 'prompt-ws', 3);
+
+    const client = createPipeClient(pipePath);
+    await client.connect();
+    await client.request('plan.update', { workspaceId: wsId, content: SAMPLE_PLAN });
+
+    const result = (await client.request('plan.approve', { workspaceId: wsId })) as {
+      approvedAt: string;
+      tasks: Array<{ id: string; assignedTo: string; dependsOn: string[] }>;
+      workerAssignments: Array<{ paneId: string; taskId: string; systemPrompt: string }>;
+    };
+    client.destroy();
+
+    expect(result.workerAssignments).toHaveLength(2);
+
+    const a1 = result.workerAssignments.find((a) => a.taskId === 'task-1');
+    expect(a1).toBeDefined();
+    expect(a1!.paneId).toBe('agent-2');
+    expect(a1!.systemPrompt).toContain('task-1');
+    expect(a1!.systemPrompt).toContain('Refactoring Plan');
+
+    const a2 = result.workerAssignments.find((a) => a.taskId === 'task-2');
+    expect(a2).toBeDefined();
+    expect(a2!.paneId).toBe('agent-3');
+    expect(a2!.systemPrompt).toContain('task-2');
+    expect(a2!.systemPrompt).toContain('depends');
+  });
+
+  it('worker prompts contain workspace name and plan body', async () => {
+    const repoDir = makeRepo();
+    const pipePath = tmpPipePath();
+    daemon = createDaemon({ pipePath, idleShutdownMs: 0, stateDir });
+    await daemon.start();
+
+    const wsId = await createWorkspaceWithPlan(pipePath, repoDir, 'ctx-ws', 3);
+
+    const client = createPipeClient(pipePath);
+    await client.connect();
+    await client.request('plan.update', { workspaceId: wsId, content: SAMPLE_PLAN });
+
+    const result = (await client.request('plan.approve', { workspaceId: wsId })) as {
+      workerAssignments: Array<{ paneId: string; taskId: string; systemPrompt: string }>;
+    };
+    client.destroy();
+
+    for (const assignment of result.workerAssignments) {
+      expect(assignment.systemPrompt).toContain('ctx-ws');
+      expect(assignment.systemPrompt).toContain('Split the auth module into two services');
+    }
+  });
+
+  it('broadcasts plan.approved notification to attached clients', async () => {
+    const repoDir = makeRepo();
+    const pipePath = tmpPipePath();
+    daemon = createDaemon({ pipePath, idleShutdownMs: 0, stateDir });
+    await daemon.start();
+
+    const wsId = await createWorkspaceWithPlan(pipePath, repoDir, 'notif-ws', 3);
+
+    const client = createPipeClient(pipePath);
+    await client.connect();
+
+    await client.request('workspace.attach', { id: wsId });
+
+    const notifications: Array<{ method: string; params: unknown }> = [];
+    client.onNotification((method, params) => {
+      notifications.push({ method, params });
+    });
+
+    await client.request('plan.update', { workspaceId: wsId, content: SAMPLE_PLAN });
+    await client.request('plan.approve', { workspaceId: wsId });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const planNotif = notifications.find((n) => n.method === 'plan.approved');
+    expect(planNotif).toBeDefined();
+    const p = planNotif!.params as {
+      workspaceId: string;
+      workerAssignments: Array<{ paneId: string; taskId: string }>;
+    };
+    expect(p.workspaceId).toBe(wsId);
+    expect(p.workerAssignments).toHaveLength(2);
+    client.destroy();
+  });
+
+  it('skips tasks with no matching worker pane', async () => {
+    const repoDir = makeRepo();
+    const pipePath = tmpPipePath();
+    daemon = createDaemon({ pipePath, idleShutdownMs: 0, stateDir });
+    await daemon.start();
+
+    const wsId = await createWorkspaceWithPlan(pipePath, repoDir, 'mismatch-ws', 2);
+
+    const client = createPipeClient(pipePath);
+    await client.connect();
+
+    const planWithExtraTask = `---
+tasks:
+  - id: task-1
+    assignedTo: agent-2
+    dependsOn: []
+  - id: task-orphan
+    assignedTo: agent-99
+    dependsOn: []
+---
+
+# Some Plan
+
+Body here.
+`;
+    await client.request('plan.update', { workspaceId: wsId, content: planWithExtraTask });
+
+    const result = (await client.request('plan.approve', { workspaceId: wsId })) as {
+      workerAssignments: Array<{ paneId: string; taskId: string; systemPrompt: string }>;
+    };
+    client.destroy();
+
+    expect(result.workerAssignments).toHaveLength(1);
+    expect(result.workerAssignments[0].paneId).toBe('agent-2');
+    expect(result.workerAssignments[0].taskId).toBe('task-1');
+  });
 });

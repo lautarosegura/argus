@@ -23,6 +23,7 @@ import type { CreateWorkspaceParams } from '../workspace/workspace-types.js';
 import { provisionWorkspace, cleanWorkspace } from '../workspace/worktree-manager.js';
 import { createPaneManager } from '../pane/pane-manager.js';
 import { parsePlan, readPlanFile, writePlanFile } from '../plan/plan.js';
+import { buildWorkerPrompt } from '../plan/prompts.js';
 import path from 'node:path';
 
 export interface DaemonOptions {
@@ -329,9 +330,37 @@ export function createDaemon(opts: DaemonOptions): Daemon {
           const approvedAt = new Date().toISOString();
           state.plan.approvedAt = approvedAt;
           await registry.update(state);
+
+          const workerAssignments: Array<{ paneId: string; taskId: string; systemPrompt: string }> = [];
+          for (const task of plan.tasks) {
+            const paneState = state.panes.find(
+              (p) => p.paneId === task.assignedTo && p.role === 'worker',
+            );
+            if (!paneState) continue;
+            const systemPrompt = buildWorkerPrompt({
+              workspaceName: state.name,
+              repoPath: state.repoPath,
+              intent: state.intent,
+              plan,
+              taskId: task.id,
+              paneId: paneState.paneId,
+            });
+            workerAssignments.push({
+              paneId: paneState.paneId,
+              taskId: task.id,
+              systemPrompt,
+            });
+          }
+
+          paneManager.broadcastNotification(state.id, 'plan.approved', {
+            workspaceId: state.id,
+            workerAssignments: workerAssignments.map(({ paneId, taskId }) => ({ paneId, taskId })),
+          });
+
           socket.write(encodeMessage(makeResponse(req.id, {
             approvedAt,
             tasks: plan.tasks,
+            workerAssignments,
           })));
         } catch (err) {
           socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
