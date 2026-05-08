@@ -30,7 +30,7 @@ export async function addWorktree(
   if (alreadyExists) return;
 
   const branches = await gitExec(repoPath, ['branch', '--list', branchName]);
-  if (branches.trim()) {
+  if (branches) {
     throw new Error(`Branch "${branchName}" already exists but is not associated with a worktree`);
   }
 
@@ -58,12 +58,15 @@ export async function listWorktrees(repoPath: string): Promise<WorktreeInfo[]> {
     const lines = block.split('\n');
     const info: Partial<WorktreeInfo> = { bare: false };
     for (const line of lines) {
-      if (line.startsWith('worktree ')) info.path = line.slice('worktree '.length);
-      else if (line.startsWith('HEAD ')) info.head = line.slice('HEAD '.length);
-      else if (line.startsWith('branch ')) {
-        const ref = line.slice('branch '.length);
-        info.branch = ref.replace('refs/heads/', '');
-      } else if (line === 'bare') info.bare = true;
+      if (line.startsWith('worktree ')) {
+        info.path = line.slice('worktree '.length);
+      } else if (line.startsWith('HEAD ')) {
+        info.head = line.slice('HEAD '.length);
+      } else if (line.startsWith('branch ')) {
+        info.branch = line.slice('branch '.length).replace('refs/heads/', '');
+      } else if (line === 'bare') {
+        info.bare = true;
+      }
     }
     if (info.path) {
       worktrees.push(info as WorktreeInfo);
@@ -75,9 +78,7 @@ export async function listWorktrees(repoPath: string): Promise<WorktreeInfo[]> {
 export async function deleteBranch(repoPath: string, branchName: string): Promise<void> {
   try {
     await gitExec(repoPath, ['branch', '-D', branchName]);
-  } catch {
-    // Branch may already be deleted
-  }
+  } catch {}
 }
 
 export async function ensureGitignore(repoPath: string, pattern: string): Promise<void> {
@@ -85,9 +86,7 @@ export async function ensureGitignore(repoPath: string, pattern: string): Promis
   let content = '';
   try {
     content = fs.readFileSync(gitignorePath, 'utf-8');
-  } catch {
-    // File doesn't exist yet
-  }
+  } catch {}
 
   const lines = content.split('\n');
   if (lines.some((l) => l.trim() === pattern)) return;
@@ -105,7 +104,6 @@ export async function provisionWorkspace(
 
   const panes: PaneState[] = [];
   let agentIndex = 1;
-  let isFirst = true;
 
   for (const entry of agentRatio) {
     for (let i = 0; i < entry.count; i++) {
@@ -118,7 +116,7 @@ export async function provisionWorkspace(
 
       panes.push({
         paneId,
-        role: isFirst ? 'lead' : 'worker',
+        role: panes.length === 0 ? 'lead' : 'worker',
         cli: entry.cli,
         worktreeRelPath,
         branchName,
@@ -126,7 +124,6 @@ export async function provisionWorkspace(
         lastKnownState: 'idle',
       });
 
-      isFirst = false;
       agentIndex++;
     }
   }
