@@ -8,13 +8,20 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "gui": "NODE_OPTIONS='--import tsx' npx electron gui/main.ts",
-    "gui:open": "NODE_OPTIONS='--import tsx' npx electron gui/main.ts --workspace"
+    "gui:open": "NODE_OPTIONS='--import tsx' npx electron gui/main.ts --workspace",
+    "build:ts": "tsc -p tsconfig.build.json",
+    "build:daemon": "pkg dist/build/src/daemon/main.js --targets node22-win-x64 --output dist/daemon/argusd.exe",
+    "build:gui": "electron-builder --win dir --config electron-builder.yml",
+    "build:cli": "bun build cli/main.ts --compile --target=bun-windows-x64 --outfile dist/cli/argus.exe",
+    "build:all": "npm run build:ts && npm run build:daemon && npm run build:gui && npm run build:cli"
   },
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.5.8",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
+    "@yao-pkg/pkg": "^6.6.0",
     "electron": "^42.0.0",
+    "electron-builder": "^25.1.8",
     "typescript": "^5.8.0",
     "vitest": "^3.1.0"
   },

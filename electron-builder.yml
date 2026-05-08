@@ -1,0 +1,29 @@
+# electron-builder config (per ADR A20).
+# Produces dist/gui/win-unpacked/Argus.exe + resources/, which the Inno Setup
+# script (installer/argus.iss) bundles into Argus-Setup.exe.
+
+appId: com.argus.app
+productName: Argus
+copyright: Copyright (c) 2026 Argus
+asar: true
+
+directories:
+  output: dist/gui
+
+files:
+  - gui/**/*
+  - dist/build/src/**/*
+  - dist/build/gui/**/*
+  - package.json
+  - "!**/*.test.{js,ts}"
+  - "!**/__fixtures__/**"
+
+extraMetadata:
+  main: dist/build/gui/main.js
+
+win:
+  target:
+    - target: dir
+      arch:
+        - x64
+  artifactName: ${productName}-${version}.${ext}

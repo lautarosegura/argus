@@ -51,10 +51,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
-; Daemon
+; Daemon (pkg-compiled standalone executable)
 Source: "..\dist\daemon\argusd.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
-; Electron desktop app and its resources (entire dist\gui tree)
-Source: "..\dist\gui\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Electron desktop app — electron-builder writes dist/gui/win-unpacked/
+Source: "..\dist\gui\win-unpacked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; CLI binary, distributed twice with different filenames (A8 — argv[0] dispatch)
 Source: "..\dist\cli\argus.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "..\dist\cli\workspace.exe"; DestDir: "{app}\bin"; Flags: ignoreversion

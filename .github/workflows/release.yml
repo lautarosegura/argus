@@ -46,29 +46,20 @@ jobs:
 
       - run: npm ci
 
-      # ---------------------------------------------------------------------
-      # TODO(A20): wire up the real build steps for each artifact.
-      # The Inno script (installer/argus.iss) consumes:
-      #   dist/daemon/argusd.exe
-      #   dist/gui/Argus.exe (+ resources)
-      #   dist/cli/argus.exe
-      #   dist/cli/workspace.exe
-      #
-      # Until the build commands are implemented, this job stages placeholder
-      # files so the installer still compiles end-to-end and we can validate
-      # the packaging path. Replace each placeholder step below as the build
-      # pipeline for that artifact lands.
-      # ---------------------------------------------------------------------
-      - name: Stage placeholder build outputs
+      - name: Compile TypeScript
+        run: npx tsc -p tsconfig.build.json
+
+      - name: Build daemon (argusd.exe)
+        run: npx pkg dist/build/src/daemon/main.js --targets node22-win-x64 --output dist/daemon/argusd.exe
+
+      - name: Build Electron app (Argus.exe)
+        run: npx electron-builder --win dir --config electron-builder.yml
+
+      - name: Build CLI (argus.exe + workspace.exe)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist/daemon, dist/gui, dist/cli, dist/installer | Out-Null
-          # TODO: replace with `node --experimental-sea-config` / pkg / bun-compile.
-          Set-Content -Path dist/daemon/argusd.exe -Value 'placeholder' -Encoding Byte
-          # TODO: replace with electron-builder output (Argus.exe + resources/).
-          Set-Content -Path dist/gui/Argus.exe -Value 'placeholder' -Encoding Byte
-          # TODO: replace with `bun build --compile` of cli/main.ts (per A8).
-          Set-Content -Path dist/cli/argus.exe -Value 'placeholder' -Encoding Byte
+          New-Item -ItemType Directory -Force -Path dist/cli | Out-Null
+          bun build cli/main.ts --compile --target=bun-windows-x64 --outfile dist/cli/argus.exe
           Copy-Item dist/cli/argus.exe dist/cli/workspace.exe
 
       - name: Install Inno Setup
