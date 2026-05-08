@@ -2,11 +2,29 @@ import { execFile, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { MergePhase, MergeRunState } from '../workspace/workspace-types.js';
+import type { MergePhase, MergeRunState, SubAgentEntry } from '../workspace/workspace-types.js';
 
 const execFileAsync = promisify(execFile);
 
-export type { MergePhase, MergeRunState };
+export type { MergePhase, MergeRunState, SubAgentEntry };
+
+export interface SubAgentResolveRequest {
+  repoPath: string;
+  conflictFiles: string[];
+  branch: string;
+}
+
+export interface SubAgentResolveResult {
+  resolved: boolean;
+  resolvedFiles: string[];
+  subAgentId: string;
+  cli: string;
+}
+
+export type SubAgentResolver = (
+  req: SubAgentResolveRequest,
+  onProgress: (subAgentId: string, detail: string) => void,
+) => Promise<SubAgentResolveResult>;
 
 export interface MergeRunOptions {
   repoPath: string;
@@ -14,6 +32,8 @@ export interface MergeRunOptions {
   verifyCommand: string;
   mergeLogPath: string;
   onProgress: (phase: MergePhase, detail?: string) => void;
+  subAgentResolver?: SubAgentResolver;
+  subAgentTimeoutMs?: number;
 }
 
 export interface ResumeMergeRunOptions {
@@ -104,14 +124,17 @@ function resolveConflictMarkers(content: string): string {
   return result.join('\n');
 }
 
+async function getConflictFiles(repoPath: string): Promise<string[]> {
+  const output = await gitExec(repoPath, ['diff', '--name-only', '--diff-filter=U']);
+  return output ? output.split('\n').filter(Boolean) : [];
+}
+
 async function tryAutoResolve(
   repoPath: string,
   logPath: string,
 ): Promise<{ resolved: boolean; files: string[] }> {
-  const conflictOutput = await gitExec(repoPath, ['diff', '--name-only', '--diff-filter=U']);
-  if (!conflictOutput) return { resolved: false, files: [] };
-
-  const files = conflictOutput.split('\n').filter(Boolean);
+  const files = await getConflictFiles(repoPath);
+  if (files.length === 0) return { resolved: false, files: [] };
   const resolvedFiles: string[] = [];
 
   for (const file of files) {
@@ -140,6 +163,70 @@ async function tryAutoResolve(
   return { resolved: true, files: resolvedFiles };
 }
 
+async function trySubAgentResolve(
+  repoPath: string,
+  logPath: string,
+  branch: string,
+  resolver: SubAgentResolver,
+  timeoutMs: number,
+  state: MergeRunState,
+  onProgress: (phase: MergePhase, detail?: string) => void,
+): Promise<boolean> {
+  const conflictFiles = await getConflictFiles(repoPath);
+  if (conflictFiles.length === 0) return false;
+
+  const entry: SubAgentEntry = {
+    subAgentId: '',
+    cli: '',
+    file: conflictFiles.join(', '),
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+  };
+  state.subAgents!.push(entry);
+
+  onProgress('resolving', `Sub-agent resolving: ${conflictFiles.join(', ')}`);
+
+  const resolvePromise = resolver(
+    { repoPath, conflictFiles, branch },
+    (subAgentId, detail) => {
+      entry.subAgentId = subAgentId;
+      onProgress('resolving', `Sub-agent ${subAgentId}: ${detail}`);
+    },
+  );
+
+  const timeoutPromise = new Promise<'timeout'>((resolve) =>
+    setTimeout(() => resolve('timeout'), timeoutMs),
+  );
+
+  const raceResult = await Promise.race([resolvePromise, timeoutPromise]);
+
+  if (raceResult === 'timeout') {
+    entry.status = 'timeout';
+    entry.completedAt = new Date().toISOString();
+    appendMergeLog(logPath, `Sub-agent timed out resolving ${conflictFiles.join(', ')} on branch ${branch}`);
+    return false;
+  }
+
+  entry.subAgentId = raceResult.subAgentId;
+  entry.cli = raceResult.cli;
+  entry.completedAt = new Date().toISOString();
+
+  if (raceResult.resolved && raceResult.resolvedFiles.length > 0) {
+    for (const file of raceResult.resolvedFiles) {
+      await gitExec(repoPath, ['add', file]);
+    }
+    await gitExec(repoPath, ['commit', '--no-edit']);
+    entry.status = 'resolved';
+    appendMergeLog(logPath, `Sub-agent ${raceResult.subAgentId} (${raceResult.cli}) resolved: ${raceResult.resolvedFiles.join(', ')}`);
+    return true;
+  }
+
+  entry.status = 'failed';
+  appendMergeLog(logPath, `Sub-agent ${raceResult.subAgentId} (${raceResult.cli}) failed to resolve ${conflictFiles.join(', ')} on branch ${branch}`);
+  return false;
+}
+
 interface MergeRunContext {
   repoPath: string;
   mergeLogPath: string;
@@ -147,6 +234,8 @@ interface MergeRunContext {
   state: MergeRunState;
   branchesToMerge: string[];
   preRun?: () => Promise<void>;
+  subAgentResolver?: SubAgentResolver;
+  subAgentTimeoutMs?: number;
 }
 
 function buildMergeRun(ctx: MergeRunContext): MergeRun {
@@ -204,6 +293,18 @@ function buildMergeRun(ctx: MergeRunContext): MergeRun {
             const result = await tryAutoResolve(ctx.repoPath, ctx.mergeLogPath);
             if (result.resolved) {
               state.mergedBranches.push(branch);
+            } else if (ctx.subAgentResolver) {
+              const subAgentResult = await trySubAgentResolve(
+                ctx.repoPath, ctx.mergeLogPath, branch, ctx.subAgentResolver,
+                ctx.subAgentTimeoutMs ?? 300_000,
+                state, ctx.onProgress,
+              );
+              if (subAgentResult) {
+                state.mergedBranches.push(branch);
+              } else {
+                try { await gitExec(ctx.repoPath, ['merge', '--abort']); } catch {}
+                return await revert(`Sub-agent failed to resolve conflict merging ${branch} — escalate to human`);
+              }
             } else {
               try { await gitExec(ctx.repoPath, ['merge', '--abort']); } catch {}
               return await revert(`Semantic conflict merging ${branch} — escalate to human`);
@@ -259,6 +360,7 @@ export function createMergeRun(opts: MergeRunOptions): MergeRun {
     verifyCommand: opts.verifyCommand,
     startedAt: new Date().toISOString(),
     completedAt: null,
+    subAgents: [],
   };
 
   return buildMergeRun({
@@ -267,6 +369,8 @@ export function createMergeRun(opts: MergeRunOptions): MergeRun {
     onProgress: opts.onProgress,
     state,
     branchesToMerge: opts.branchOrder,
+    subAgentResolver: opts.subAgentResolver,
+    subAgentTimeoutMs: opts.subAgentTimeoutMs,
     async preRun() {
       state.phase = 'tagging';
       opts.onProgress('tagging');

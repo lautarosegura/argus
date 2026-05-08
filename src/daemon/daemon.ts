@@ -28,6 +28,7 @@ import { parsePlan, readPlanFile, writePlanFile } from '../plan/plan.js';
 import { buildWorkerPrompt } from '../plan/prompts.js';
 import { createMergeRun, resumeMergeRun, type MergeRun } from '../merge/merge-runner.js';
 import type { MergePhase } from '../workspace/workspace-types.js';
+import { createSubAgentResolver } from '../merge/sub-agent.js';
 import path from 'node:path';
 
 const execFileAsync = promisify(execFile);
@@ -437,6 +438,8 @@ export function createDaemon(opts: DaemonOptions): Daemon {
             : 'npm test';
           const mergeLogPath = path.join(state.repoPath, '.workspace', 'merge-log.md');
 
+          const preferredCli = state.agentRatio[0]?.cli === 'codex' ? 'codex' : 'claude';
+
           let mergeRunId = '';
           const run = createMergeRun({
             repoPath: state.repoPath,
@@ -451,6 +454,10 @@ export function createDaemon(opts: DaemonOptions): Daemon {
                 ...(detail !== undefined && { detail }),
               });
             },
+            subAgentResolver: createSubAgentResolver({ cli: preferredCli }),
+            subAgentTimeoutMs: typeof params.subAgentTimeoutMs === 'number'
+              ? params.subAgentTimeoutMs
+              : 300_000,
           });
           mergeRunId = run.state.mergeRunId;
 
