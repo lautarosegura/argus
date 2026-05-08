@@ -79,19 +79,17 @@ export function createWorkspaceRegistry(stateDir: string): WorkspaceRegistry {
         return [];
       }
 
-      const summaries: WorkspaceSummary[] = [];
-      for (const file of files) {
+      return files.map((file): WorkspaceSummary => {
         const state = readState(path.join(stateDir, file));
-        summaries.push({
+        return {
           id: state.id,
           name: state.name,
           createdAt: state.createdAt,
           repoPath: state.repoPath,
           agentRatio: state.agentRatio,
           paneCount: state.panes.length,
-        });
-      }
-      return summaries;
+        };
+      });
     },
 
     async get(id) {

@@ -10,6 +10,7 @@ import {
   makeResponse,
   makeError,
   makeNotification,
+  toErrorMessage,
 } from '../shared/json-rpc.js';
 import {
   PROTOCOL_VERSION,
@@ -98,8 +99,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
           const state = await registry.create(createParams);
           socket.write(encodeMessage(makeResponse(req.id, { workspaceId: state.id })));
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, msg)));
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, toErrorMessage(err))));
         }
         break;
       }
@@ -123,8 +123,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
           const workspace = await registry.get(params.id as string);
           socket.write(encodeMessage(makeResponse(req.id, { workspace })));
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, msg)));
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
         }
         break;
       }
@@ -138,8 +137,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
           await registry.delete(params.id as string);
           socket.write(encodeMessage(makeResponse(req.id, {})));
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, msg)));
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
         }
         break;
       }

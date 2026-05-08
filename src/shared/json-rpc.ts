@@ -73,6 +73,10 @@ export function makeRequest(id: number | string, method: string, params?: unknow
   return { jsonrpc: '2.0', method, ...(params !== undefined && { params }), id };
 }
 
+export function toErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export class LineBuffer {
   private buffer = '';
 

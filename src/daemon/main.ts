@@ -1,3 +1,4 @@
+import { toErrorMessage } from '../shared/json-rpc.js';
 import { getPipePath, DEFAULT_IDLE_SHUTDOWN_MS, getStateDir } from '../shared/protocol.js';
 import { createDaemon } from './daemon.js';
 
@@ -23,7 +24,7 @@ try {
   await daemon.start();
   console.log(`argusd listening on ${pipePath}`);
 } catch (err) {
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = toErrorMessage(err);
   if (msg.includes('already in use')) {
     console.log('Another argusd is already running. Exiting cleanly.');
     process.exit(0);
