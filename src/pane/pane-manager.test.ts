@@ -63,6 +63,7 @@ const CTX: AdapterContext = {
   worktreePath: '/tmp/worktree',
   paneId: 'agent-1',
   workspaceId: 'ws-1',
+  paneRole: 'worker',
 };
 
 describe('PaneManager', () => {

@@ -6,6 +6,9 @@ import {
   type IPty,
   type LivePaneState,
 } from './adapter-types.js';
+import type { DecideInput, SandboxDecision } from '../sandbox/sandbox.js';
+
+export type SandboxFn = (input: DecideInput) => SandboxDecision;
 
 interface ClaudeContentBlock {
   type: string;
@@ -49,12 +52,18 @@ interface ClaudeStreamEvent {
 export class ClaudeAdapter extends Adapter {
   readonly cliKind = 'claude' as const;
   private pty: IPty | null = null;
+  private ctx: AdapterContext | null = null;
   private buffer = '';
   private currentState: LivePaneState | null = null;
   private disposed = false;
 
-  start(pty: IPty, _ctx: AdapterContext): void {
+  constructor(private readonly sandbox?: SandboxFn) {
+    super();
+  }
+
+  start(pty: IPty, ctx: AdapterContext): void {
     this.pty = pty;
+    this.ctx = ctx;
 
     pty.onData((data: string) => {
       this.emit('event', { kind: 'output', bytes: Buffer.from(data) } satisfies AdapterEvent);
@@ -183,15 +192,54 @@ export class ClaudeAdapter extends Adapter {
           } satisfies AdapterEvent);
           break;
 
-        case 'tool_use':
+        case 'tool_use': {
+          const toolId = block.id ?? '';
+          const toolName = block.name ?? '';
+          const toolArgs = block.input;
+          const decision = this.sandbox && this.ctx
+            ? this.sandbox({
+                cli: this.cliKind,
+                tool: toolName,
+                args: toolArgs,
+                worktreePath: this.ctx.worktreePath,
+                paneRole: this.ctx.paneRole,
+              })
+            : undefined;
+
           this.transitionState('toolUse');
           this.emit('event', {
             kind: 'toolCall.requested',
-            id: block.id ?? '',
-            tool: block.name ?? '',
-            args: block.input,
+            id: toolId,
+            tool: toolName,
+            args: toolArgs,
+          } satisfies AdapterEvent);
+
+          if (!decision) break;
+
+          if (decision.kind === 'allow') {
+            this.decideToolCall(toolId, 'allow');
+            break;
+          }
+
+          if (decision.kind === 'deny') {
+            this.emit('event', {
+              kind: 'error',
+              source: 'sandbox',
+              message: decision.reason,
+            } satisfies AdapterEvent);
+            this.decideToolCall(toolId, 'deny', decision.reason);
+            break;
+          }
+
+          this.transitionState('waitingPerm');
+          this.emit('event', {
+            kind: 'permissionRequest',
+            id: toolId,
+            what: `${toolName}: ${JSON.stringify(toolArgs)}`,
+            risk: decision.risk,
           } satisfies AdapterEvent);
           break;
+        }
       }
     }
 

@@ -19,12 +19,13 @@ export type AdapterEvent =
   | { kind: 'permissionRequest'; id: string; what: string; risk: 'low' | 'medium' | 'high' }
   | { kind: 'sentinel'; cmd: 'done' | 'blocked' | 'status'; payload: unknown }
   | { kind: 'usage'; tokensIn?: number; tokensOut?: number; costUsd?: number }
-  | { kind: 'error'; source: 'parser' | 'cli' | 'pty'; message: string };
+  | { kind: 'error'; source: 'parser' | 'cli' | 'pty' | 'sandbox'; message: string };
 
 export interface AdapterContext {
   worktreePath: string;
   paneId: string;
   workspaceId: string;
+  paneRole: 'lead' | 'worker' | 'merge';
 }
 
 export interface IPty {

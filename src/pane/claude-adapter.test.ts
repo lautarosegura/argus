@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ClaudeAdapter } from './claude-adapter.js';
 import type { AdapterEvent, IPty, AdapterContext } from './adapter-types.js';
+import { decide } from '../sandbox/sandbox.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, '__fixtures__');
@@ -53,6 +54,7 @@ const CTX: AdapterContext = {
   worktreePath: '/tmp/worktree',
   paneId: 'agent-1',
   workspaceId: 'test-workspace',
+  paneRole: 'worker',
 };
 
 function collectEvents(adapter: ClaudeAdapter): Promise<AdapterEvent[]> {
@@ -259,6 +261,141 @@ describe('ClaudeAdapter', () => {
       adapter.start(pty, CTX);
       adapter.interrupt();
       expect(pty.written).toContain('\x03');
+    });
+  });
+
+  describe('sandbox integration', () => {
+    it('auto-allows tool call when sandbox allows', async () => {
+      const sandbox = (input: Parameters<typeof decide>[0]) => decide(input);
+      const adapter = new ClaudeAdapter(sandbox);
+      const fixture = loadFixture('tool-use');
+      const pty = createFakePty(fixture);
+      const events = collectEvents(adapter);
+      // Use /tmp as worktree so fixture's Read of /tmp/test.ts is inside worktree
+      adapter.start(pty, { ...CTX, worktreePath: '/tmp' });
+      const result = await events;
+
+      const toolRequested = result.filter((e) => e.kind === 'toolCall.requested');
+      expect(toolRequested.length).toBe(1);
+      expect(toolRequested[0]).toMatchObject({ tool: 'Read' });
+
+      const written = pty.written.filter((w) => w.includes('tool_decision'));
+      expect(written.length).toBe(1);
+      const decision = JSON.parse(written[0].trim());
+      expect(decision.decision).toBe('allow');
+      expect(decision.id).toBe('toolu_01');
+    });
+
+    it('auto-denies tool call when sandbox denies', async () => {
+      const sandbox = (input: Parameters<typeof decide>[0]) => decide(input);
+      const adapter = new ClaudeAdapter(sandbox);
+      const fixture = loadFixture('permission-blocked');
+      const pty = createFakePty(fixture);
+      const events = collectEvents(adapter);
+      adapter.start(pty, CTX);
+      const result = await events;
+
+      const toolRequested = result.filter((e) => e.kind === 'toolCall.requested');
+      expect(toolRequested.length).toBe(1);
+      expect(toolRequested[0]).toMatchObject({ tool: 'Bash' });
+
+      const errorEvents = result.filter(
+        (e) => e.kind === 'error' && (e as { source: string }).source === 'sandbox',
+      );
+      expect(errorEvents.length).toBe(1);
+      expect((errorEvents[0] as { message: string }).message).toContain('curl');
+
+      const written = pty.written.filter((w) => w.includes('tool_decision'));
+      expect(written.length).toBe(1);
+      const decision = JSON.parse(written[0].trim());
+      expect(decision.decision).toBe('deny');
+    });
+
+    it('emits permissionRequest for ask decisions', async () => {
+      const askSandbox = () => ({
+        kind: 'ask' as const,
+        risk: 'medium' as const,
+      });
+      const adapter = new ClaudeAdapter(askSandbox);
+      const fixture = loadFixture('tool-use');
+      const pty = createFakePty(fixture);
+      const events = collectEvents(adapter);
+      adapter.start(pty, CTX);
+      const result = await events;
+
+      const permEvents = result.filter((e) => e.kind === 'permissionRequest');
+      expect(permEvents.length).toBe(1);
+      expect(permEvents[0]).toMatchObject({
+        kind: 'permissionRequest',
+        id: 'toolu_01',
+        risk: 'medium',
+      });
+
+      const stateEvents = result.filter((e) => e.kind === 'state');
+      const states = stateEvents.map((e) => (e as { state: string }).state);
+      expect(states).toContain('waitingPerm');
+
+      const written = pty.written.filter((w) => w.includes('tool_decision'));
+      expect(written.length).toBe(0);
+    });
+
+    it('decideTool round-trip: ask → external allow writes to PTY', async () => {
+      const askSandbox = () => ({
+        kind: 'ask' as const,
+        risk: 'low' as const,
+      });
+      const adapter = new ClaudeAdapter(askSandbox);
+      const fixture = loadFixture('tool-use');
+      const pty = createFakePty(fixture);
+      adapter.start(pty, CTX);
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      // No tool_decision written yet
+      expect(pty.written.filter((w) => w.includes('tool_decision')).length).toBe(0);
+
+      // GUI/CLI sends the decision
+      adapter.decideToolCall('toolu_01', 'allow');
+
+      const written = pty.written.filter((w) => w.includes('tool_decision'));
+      expect(written.length).toBe(1);
+      const decision = JSON.parse(written[0].trim());
+      expect(decision).toEqual({ type: 'tool_decision', id: 'toolu_01', decision: 'allow' });
+    });
+
+    it('decideTool round-trip: ask → external deny writes to PTY', async () => {
+      const askSandbox = () => ({
+        kind: 'ask' as const,
+        risk: 'high' as const,
+      });
+      const adapter = new ClaudeAdapter(askSandbox);
+      const fixture = loadFixture('tool-use');
+      const pty = createFakePty(fixture);
+      adapter.start(pty, CTX);
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      adapter.decideToolCall('toolu_01', 'deny', 'User rejected');
+
+      const written = pty.written.filter((w) => w.includes('tool_decision'));
+      expect(written.length).toBe(1);
+      const decision = JSON.parse(written[0].trim());
+      expect(decision.decision).toBe('deny');
+    });
+
+    it('does not auto-decide when sandbox is not provided', async () => {
+      const adapter = new ClaudeAdapter();
+      const fixture = loadFixture('tool-use');
+      const pty = createFakePty(fixture);
+      const events = collectEvents(adapter);
+      adapter.start(pty, CTX);
+      const result = await events;
+
+      const toolRequested = result.filter((e) => e.kind === 'toolCall.requested');
+      expect(toolRequested.length).toBe(1);
+
+      const written = pty.written.filter((w) => w.includes('tool_decision'));
+      expect(written.length).toBe(0);
     });
   });
 });
