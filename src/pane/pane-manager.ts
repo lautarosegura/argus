@@ -1,6 +1,13 @@
 import type { IPty, AdapterContext } from './adapter-types.js';
-import { createPane, type Pane, type PaneEventNotification } from './pane.js';
+import { createPane, type Pane } from './pane.js';
 import type net from 'node:net';
+
+export interface SentinelReport {
+  workspaceId: string;
+  paneId: string;
+  cmd: 'done' | 'blocked' | 'status';
+  payload: unknown;
+}
 
 export interface PaneManager {
   createPane(pty: IPty, cliKind: string, ctx: AdapterContext): Pane;
@@ -9,40 +16,36 @@ export interface PaneManager {
   removePane(paneId: string): void;
   attach(workspaceId: string, socket: net.Socket): void;
   detach(workspaceId: string, socket: net.Socket): void;
-}
-
-function formatNotification(n: PaneEventNotification): object {
-  const event = { ...n.event } as Record<string, unknown>;
-  if (n.event.kind === 'output') {
-    event.bytes = n.event.bytes.toString('base64');
-  }
-  return {
-    jsonrpc: '2.0',
-    method: 'pane.event',
-    params: {
-      workspaceId: n.workspaceId,
-      paneId: n.paneId,
-      event,
-    },
-  };
+  reportSentinel(report: SentinelReport): void;
 }
 
 export function createPaneManager(): PaneManager {
   const panes = new Map<string, Pane>();
   const subscriptions = new Map<string, Set<net.Socket>>();
 
+  function broadcast(workspaceId: string, paneId: string, event: Record<string, unknown>): void {
+    const subs = subscriptions.get(workspaceId);
+    if (!subs) return;
+    const msg = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'pane.event',
+      params: { workspaceId, paneId, event },
+    }) + '\n';
+    for (const socket of subs) {
+      socket.write(msg);
+    }
+  }
+
   return {
     createPane(pty, cliKind, ctx) {
       const pane = createPane({ pty, cliKind, ctx });
 
       pane.onEvent((notification) => {
-        const subs = subscriptions.get(notification.workspaceId);
-        if (!subs) return;
-
-        const encoded = JSON.stringify(formatNotification(notification)) + '\n';
-        for (const socket of subs) {
-          socket.write(encoded);
+        const event = { ...notification.event } as Record<string, unknown>;
+        if (notification.event.kind === 'output') {
+          event.bytes = notification.event.bytes.toString('base64');
         }
+        broadcast(notification.workspaceId, notification.paneId, event);
       });
 
       panes.set(ctx.paneId, pane);
@@ -86,6 +89,21 @@ export function createPaneManager(): PaneManager {
       subs.delete(socket);
       if (subs.size === 0) {
         subscriptions.delete(workspaceId);
+      }
+    },
+
+    reportSentinel(report) {
+      broadcast(report.workspaceId, report.paneId, {
+        kind: 'sentinel',
+        cmd: report.cmd,
+        payload: report.payload,
+      });
+
+      if (report.cmd === 'done' || report.cmd === 'blocked') {
+        broadcast(report.workspaceId, report.paneId, {
+          kind: 'state',
+          state: report.cmd,
+        });
       }
     },
   };
