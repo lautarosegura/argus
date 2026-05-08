@@ -1,5 +1,6 @@
 import type { IPty, AdapterContext } from './adapter-types.js';
 import { createPane, type Pane } from './pane.js';
+import { encodeMessage, makeNotification } from '../shared/json-rpc.js';
 import type net from 'node:net';
 
 export interface SentinelReport {
@@ -96,11 +97,7 @@ export function createPaneManager(): PaneManager {
     broadcastNotification(workspaceId, method, params) {
       const subs = subscriptions.get(workspaceId);
       if (!subs) return;
-      const msg = JSON.stringify({
-        jsonrpc: '2.0',
-        method,
-        params,
-      }) + '\n';
+      const msg = encodeMessage(makeNotification(method, params));
       for (const socket of subs) {
         socket.write(msg);
       }
