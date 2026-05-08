@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { daemonStatus } from './commands/daemon-status.js';
+import { init } from './commands/init.js';
+import { list } from './commands/list.js';
 
 const argv0 = path.basename(process.argv[1] ?? '');
 const args = process.argv.slice(2);
@@ -19,8 +21,16 @@ switch (command) {
     await daemonStatus();
     break;
 
+  case 'init':
+    await init(args.slice(1));
+    break;
+
+  case 'list':
+    await list();
+    break;
+
   default:
     console.error(`Unknown command: ${command ?? '(none)'}`);
-    console.error(`Available commands: daemon-status`);
+    console.error(`Available commands: init, list, daemon-status`);
     process.exit(1);
 }

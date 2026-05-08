@@ -17,10 +17,13 @@ import {
   RpcErrorCode,
   type DaemonStatusResult,
 } from '../shared/protocol.js';
+import { createWorkspaceRegistry, type WorkspaceRegistry } from '../workspace/workspace-registry.js';
+import type { CreateWorkspaceParams } from '../workspace/workspace-types.js';
 
 export interface DaemonOptions {
   pipePath: string;
   idleShutdownMs: number;
+  stateDir?: string;
 }
 
 export interface Daemon extends EventEmitter {
@@ -37,7 +40,11 @@ export function createDaemon(opts: DaemonOptions): Daemon {
   let stopped = false;
   const clients = new Set<net.Socket>();
 
-  function handleRequest(req: JsonRpcRequest, socket: net.Socket): void {
+  const registry: WorkspaceRegistry | null = opts.stateDir
+    ? createWorkspaceRegistry(opts.stateDir)
+    : null;
+
+  async function handleRequest(req: JsonRpcRequest, socket: net.Socket): Promise<void> {
     const params = (req.params ?? {}) as Record<string, unknown>;
 
     if (params.protocolVersion !== undefined && params.protocolVersion !== PROTOCOL_VERSION) {
@@ -54,10 +61,15 @@ export function createDaemon(opts: DaemonOptions): Daemon {
 
     switch (req.method) {
       case 'daemon.status': {
+        let workspaceCount = 0;
+        if (registry) {
+          const list = await registry.list();
+          workspaceCount = list.length;
+        }
         const result: DaemonStatusResult = {
           version: DAEMON_VERSION,
           uptime: Math.floor((Date.now() - startedAt) / 1000),
-          workspaceCount: 0,
+          workspaceCount,
           protocolVersion: PROTOCOL_VERSION,
         };
         socket.write(encodeMessage(makeResponse(req.id, result)));
@@ -76,6 +88,62 @@ export function createDaemon(opts: DaemonOptions): Daemon {
         break;
       }
 
+      case 'workspace.create': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, 'No state directory configured')));
+          break;
+        }
+        try {
+          const createParams = params as unknown as CreateWorkspaceParams;
+          const state = await registry.create(createParams);
+          socket.write(encodeMessage(makeResponse(req.id, { workspaceId: state.id })));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, msg)));
+        }
+        break;
+      }
+
+      case 'workspace.list': {
+        if (!registry) {
+          socket.write(encodeMessage(makeResponse(req.id, { workspaces: [] })));
+          break;
+        }
+        const workspaces = await registry.list();
+        socket.write(encodeMessage(makeResponse(req.id, { workspaces })));
+        break;
+      }
+
+      case 'workspace.get': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, 'No state directory configured')));
+          break;
+        }
+        try {
+          const workspace = await registry.get(params.id as string);
+          socket.write(encodeMessage(makeResponse(req.id, { workspace })));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, msg)));
+        }
+        break;
+      }
+
+      case 'workspace.delete': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, 'No state directory configured')));
+          break;
+        }
+        try {
+          await registry.delete(params.id as string);
+          socket.write(encodeMessage(makeResponse(req.id, {})));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, msg)));
+        }
+        break;
+      }
+
       default:
         socket.write(
           encodeMessage(
@@ -87,7 +155,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
 
   function handleMessage(msg: JsonRpcMessage, socket: net.Socket): void {
     if (isRequest(msg)) {
-      handleRequest(msg, socket);
+      void handleRequest(msg, socket);
     }
   }
 

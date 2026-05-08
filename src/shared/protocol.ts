@@ -1,4 +1,5 @@
 import os from 'node:os';
+import path from 'node:path';
 
 export const PROTOCOL_VERSION = 1;
 export const DAEMON_VERSION = '0.1.0';
@@ -14,6 +15,17 @@ export function getDefaultPipePath(): string {
 
 export function getPipePath(): string {
   return process.env.ARGUS_PIPE ?? getDefaultPipePath();
+}
+
+export function getStateDir(): string {
+  if (process.env.ARGUS_STATE_DIR) {
+    return process.env.ARGUS_STATE_DIR;
+  }
+  if (process.platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local');
+    return path.join(localAppData, 'Argus', 'state', 'workspaces');
+  }
+  return path.join(os.homedir(), '.local', 'share', 'argus', 'state', 'workspaces');
 }
 
 export const RpcErrorCode = {

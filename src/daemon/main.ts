@@ -1,10 +1,11 @@
-import { getPipePath, DEFAULT_IDLE_SHUTDOWN_MS } from '../shared/protocol.js';
+import { getPipePath, DEFAULT_IDLE_SHUTDOWN_MS, getStateDir } from '../shared/protocol.js';
 import { createDaemon } from './daemon.js';
 
 const pipePath = getPipePath();
 const idleShutdownMs = DEFAULT_IDLE_SHUTDOWN_MS;
+const stateDir = getStateDir();
 
-const daemon = createDaemon({ pipePath, idleShutdownMs });
+const daemon = createDaemon({ pipePath, idleShutdownMs, stateDir });
 
 daemon.on('stopped', () => {
   process.exit(0);
