@@ -86,9 +86,7 @@ export class LineBuffer {
       if (line.length === 0) continue;
       try {
         messages.push(JSON.parse(line) as JsonRpcMessage);
-      } catch {
-        // Malformed line — skip
-      }
+      } catch {}
     }
     return messages;
   }

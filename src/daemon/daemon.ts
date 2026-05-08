@@ -127,9 +127,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
     if (process.platform !== 'win32') {
       try {
         fs.unlinkSync(opts.pipePath);
-      } catch {
-        // Already cleaned up
-      }
+      } catch {}
     }
   }
 
@@ -179,19 +177,17 @@ export function createDaemon(opts: DaemonOptions): Daemon {
       await tryListen(server, opts.pipePath);
     } catch (err) {
       const e = err as NodeJS.ErrnoException;
-      if (e.code === 'EADDRINUSE' && process.platform !== 'win32') {
-        const live = await isSocketLive(opts.pipePath);
-        if (live) {
-          throw new Error(`Pipe already in use: ${opts.pipePath}`);
-        }
-        fs.unlinkSync(opts.pipePath);
-        server = createServer();
-        await tryListen(server, opts.pipePath);
-      } else if (e.code === 'EADDRINUSE') {
+      if (e.code !== 'EADDRINUSE') throw err;
+      if (process.platform === 'win32') {
         throw new Error(`Pipe already in use: ${opts.pipePath}`);
-      } else {
-        throw err;
       }
+      const live = await isSocketLive(opts.pipePath);
+      if (live) {
+        throw new Error(`Pipe already in use: ${opts.pipePath}`);
+      }
+      fs.unlinkSync(opts.pipePath);
+      server = createServer();
+      await tryListen(server, opts.pipePath);
     }
     startIdleTimer();
   };

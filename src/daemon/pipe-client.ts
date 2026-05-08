@@ -1,6 +1,7 @@
 import net from 'node:net';
 import {
   type JsonRpcMessage,
+  type JsonRpcNotification,
   type JsonRpcResponse,
   LineBuffer,
   encodeMessage,
@@ -34,7 +35,7 @@ export function createPipeClient(pipePath: string): PipeClient {
       }
     } else if ('method' in msg) {
       for (const handler of notificationHandlers) {
-        handler(msg.method, (msg as { params?: unknown }).params);
+        handler(msg.method, (msg as JsonRpcNotification).params);
       }
     }
   }
