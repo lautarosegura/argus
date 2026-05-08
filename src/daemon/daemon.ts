@@ -24,6 +24,7 @@ import { provisionWorkspace, cleanWorkspace } from '../workspace/worktree-manage
 import { createPaneManager } from '../pane/pane-manager.js';
 import { parsePlan, readPlanFile, writePlanFile } from '../plan/plan.js';
 import { buildWorkerPrompt } from '../plan/prompts.js';
+import { createMergeRun, type MergeRun } from '../merge/merge-runner.js';
 import path from 'node:path';
 
 export interface DaemonOptions {
@@ -51,6 +52,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
     : null;
 
   const paneManager = createPaneManager();
+  const activeMergeRuns = new Map<string, MergeRun>();
 
   async function handleRequest(req: JsonRpcRequest, socket: net.Socket): Promise<void> {
     const params = (req.params ?? {}) as Record<string, unknown>;
@@ -364,6 +366,115 @@ export function createDaemon(opts: DaemonOptions): Daemon {
           })));
         } catch (err) {
           socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
+        }
+        break;
+      }
+
+      case 'merge.start': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, 'No state directory configured')));
+          break;
+        }
+        try {
+          const state = await registry.get(params.workspaceId as string);
+
+          if (activeMergeRuns.has(state.id)) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.MERGE_IN_PROGRESS, 'Merge already in progress')));
+            break;
+          }
+
+          const workers = state.panes.filter((p) => p.role === 'worker');
+          const notDone = workers.filter((p) => p.lastKnownState !== 'done');
+          if (notDone.length > 0) {
+            socket.write(encodeMessage(makeError(
+              req.id,
+              RpcErrorCode.MERGE_NOT_READY,
+              `Workers not done: ${notDone.map((p) => p.paneId).join(', ')}`,
+            )));
+            break;
+          }
+
+          let branchOrder: string[];
+          if (state.plan?.approvedAt) {
+            const planPath = path.join(state.repoPath, state.plan.path);
+            const content = readPlanFile(planPath);
+            if (content) {
+              const plan = parsePlan(content);
+              branchOrder = plan.tasks
+                .map((t) => state.panes.find((p) => p.paneId === t.assignedTo))
+                .filter((p): p is NonNullable<typeof p> => p !== undefined)
+                .map((p) => p.branchName);
+            } else {
+              branchOrder = workers.map((p) => p.branchName);
+            }
+          } else {
+            branchOrder = workers.map((p) => p.branchName);
+          }
+
+          const verifyCommand = typeof params.verifyCommand === 'string'
+            ? params.verifyCommand
+            : 'npm test';
+          const mergeLogPath = path.join(state.repoPath, '.workspace', 'merge-log.md');
+
+          let runRef: MergeRun | null = null;
+          const run = createMergeRun({
+            repoPath: state.repoPath,
+            branchOrder,
+            verifyCommand,
+            mergeLogPath,
+            onProgress: (phase, detail) => {
+              const mergeRunId = runRef?.state.mergeRunId ?? '';
+              paneManager.broadcastNotification(state.id, 'merge.progress', {
+                workspaceId: state.id,
+                mergeRunId,
+                phase,
+                ...(detail !== undefined && { detail }),
+              });
+            },
+          });
+          runRef = run;
+
+          state.mergeState = run.state;
+          await registry.update(state);
+
+          activeMergeRuns.set(state.id, run);
+
+          run.promise.then(async (finalState) => {
+            activeMergeRuns.delete(state.id);
+            try {
+              const current = await registry!.get(state.id);
+              current.mergeState = finalState;
+              await registry!.update(current);
+            } catch {}
+          }).catch(() => {
+            activeMergeRuns.delete(state.id);
+          });
+
+          socket.write(encodeMessage(makeResponse(req.id, {
+            mergeRunId: run.state.mergeRunId,
+          })));
+        } catch (err) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
+        }
+        break;
+      }
+
+      case 'merge.cancel': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, 'No state directory configured')));
+          break;
+        }
+        try {
+          const workspaceId = params.workspaceId as string;
+          const run = activeMergeRuns.get(workspaceId);
+          if (!run) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, 'No active merge to cancel')));
+            break;
+          }
+          run.cancel();
+          socket.write(encodeMessage(makeResponse(req.id, {})));
+        } catch (err) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, toErrorMessage(err))));
         }
         break;
       }

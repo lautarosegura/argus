@@ -18,6 +18,20 @@ export interface PlanState {
   approvedAt: string | null;
 }
 
+export type MergePhase = 'tagging' | 'merging' | 'resolving' | 'testing' | 'complete' | 'reverted';
+
+export interface MergeRunState {
+  mergeRunId: string;
+  phase: MergePhase;
+  preMergeTag: string;
+  branchOrder: string[];
+  mergedBranches: string[];
+  verifyCommand: string;
+  startedAt: string;
+  completedAt: string | null;
+  error?: string;
+}
+
 export interface WorkspaceState {
   schemaVersion: number;
   id: string;
@@ -28,7 +42,7 @@ export interface WorkspaceState {
   agentRatio: AgentRatioEntry[];
   panes: PaneState[];
   plan: PlanState | null;
-  mergeState: unknown | null;
+  mergeState: MergeRunState | null;
 }
 
 export interface WorkspaceSummary {

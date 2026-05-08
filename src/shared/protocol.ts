@@ -39,6 +39,8 @@ export const RpcErrorCode = {
   WORKSPACE_LOCKED: -32003,
   PROTOCOL_VERSION_MISMATCH: -32004,
   SANDBOX_VIOLATION: -32005,
+  MERGE_NOT_READY: -32006,
+  MERGE_IN_PROGRESS: -32007,
 } as const;
 
 export interface DaemonStatusResult {
