@@ -1,15 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getDefaultLogDir, type LogLevel } from '../../src/shared/logger.js';
-
-const LEVEL_PRIORITY: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-};
-
-const VALID_LEVELS = new Set<string>(['debug', 'info', 'warn', 'error']);
+import { getDefaultLogDir, LEVEL_PRIORITY, type LogLevel } from '../../src/shared/logger.js';
 
 interface LogsOptions {
   follow: boolean;
@@ -47,13 +38,21 @@ export function parseLogsArgs(args: string[]): LogsOptions {
       case '--level':
         {
           const val = args[++i];
-          if (val && VALID_LEVELS.has(val)) level = val as LogLevel;
+          if (val && val in LEVEL_PRIORITY) level = val as LogLevel;
         }
         break;
     }
   }
 
   return { follow, workspace, level };
+}
+
+function printLines(text: string, level: LogLevel): void {
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    const formatted = formatEntry(line, level);
+    if (formatted) console.log(formatted);
+  }
 }
 
 export async function logs(args: string[]): Promise<void> {
@@ -70,12 +69,7 @@ export async function logs(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const content = fs.readFileSync(filePath, 'utf-8');
-  for (const line of content.split('\n')) {
-    if (!line.trim()) continue;
-    const formatted = formatEntry(line, opts.level);
-    if (formatted) console.log(formatted);
-  }
+  printLines(fs.readFileSync(filePath, 'utf-8'), opts.level);
 
   if (!opts.follow) return;
 
@@ -96,11 +90,7 @@ export async function logs(args: string[]): Promise<void> {
     fs.closeSync(fd);
     position = stat.size;
 
-    for (const line of buf.toString('utf-8').split('\n')) {
-      if (!line.trim()) continue;
-      const formatted = formatEntry(line, opts.level);
-      if (formatted) console.log(formatted);
-    }
+    printLines(buf.toString('utf-8'), opts.level);
   });
 
   process.on('SIGINT', () => {

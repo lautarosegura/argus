@@ -28,14 +28,12 @@ export interface LoggerOptions {
   now?: () => Date;
 }
 
-const LEVEL_PRIORITY: Record<LogLevel, number> = {
+export const LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 0,
   info: 1,
   warn: 2,
   error: 3,
 };
-
-const VALID_LEVELS = new Set<string>(['debug', 'info', 'warn', 'error']);
 
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -74,7 +72,7 @@ function pruneOldFiles(componentDir: string, retentionDays: number, now: Date): 
 
 export function resolveLogLevel(): LogLevel {
   const env = process.env.ARGUS_LOG;
-  if (env && VALID_LEVELS.has(env)) return env as LogLevel;
+  if (env && env in LEVEL_PRIORITY) return env as LogLevel;
   return 'info';
 }
 
