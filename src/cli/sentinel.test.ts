@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSentinelArgs, type SentinelCommand } from '../../cli/commands/sentinel.js';
+import { parseSentinelArgs } from '../../cli/commands/sentinel.js';
 
 describe('parseSentinelArgs', () => {
   it('parses "done" with no flags', () => {

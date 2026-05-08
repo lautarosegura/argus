@@ -1,5 +1,5 @@
 import type { IPty, AdapterContext } from './adapter-types.js';
-import { createPane, type Pane, type PaneEventNotification } from './pane.js';
+import { createPane, type Pane } from './pane.js';
 import type net from 'node:net';
 
 export interface SentinelReport {
@@ -17,22 +17,6 @@ export interface PaneManager {
   attach(workspaceId: string, socket: net.Socket): void;
   detach(workspaceId: string, socket: net.Socket): void;
   reportSentinel(report: SentinelReport): void;
-}
-
-function formatNotification(n: PaneEventNotification): object {
-  const event = { ...n.event } as Record<string, unknown>;
-  if (n.event.kind === 'output') {
-    event.bytes = n.event.bytes.toString('base64');
-  }
-  return {
-    jsonrpc: '2.0',
-    method: 'pane.event',
-    params: {
-      workspaceId: n.workspaceId,
-      paneId: n.paneId,
-      event,
-    },
-  };
 }
 
 export function createPaneManager(): PaneManager {
@@ -57,13 +41,11 @@ export function createPaneManager(): PaneManager {
       const pane = createPane({ pty, cliKind, ctx });
 
       pane.onEvent((notification) => {
-        const subs = subscriptions.get(notification.workspaceId);
-        if (!subs) return;
-
-        const encoded = JSON.stringify(formatNotification(notification)) + '\n';
-        for (const socket of subs) {
-          socket.write(encoded);
+        const event = { ...notification.event } as Record<string, unknown>;
+        if (notification.event.kind === 'output') {
+          event.bytes = notification.event.bytes.toString('base64');
         }
+        broadcast(notification.workspaceId, notification.paneId, event);
       });
 
       panes.set(ctx.paneId, pane);
@@ -120,7 +102,7 @@ export function createPaneManager(): PaneManager {
       if (report.cmd === 'done' || report.cmd === 'blocked') {
         broadcast(report.workspaceId, report.paneId, {
           kind: 'state',
-          state: report.cmd === 'done' ? 'done' : 'blocked',
+          state: report.cmd,
         });
       }
     },
