@@ -168,14 +168,12 @@ export function createMergeRun(opts: MergeRunOptions): MergeRun {
 
   const promise = (async (): Promise<MergeRunState> => {
     try {
-      // Phase: tagging
       transition('tagging');
       await gitExec(opts.repoPath, ['tag', state.preMergeTag]);
       appendMergeLog(opts.mergeLogPath, `Created pre-merge tag: ${state.preMergeTag}`);
 
       if (cancelled) return await revert('Cancelled');
 
-      // Phase: merging
       transition('merging');
       for (const branch of opts.branchOrder) {
         if (cancelled) return await revert('Cancelled');
@@ -198,7 +196,6 @@ export function createMergeRun(opts: MergeRunOptions): MergeRun {
 
       if (cancelled) return await revert('Cancelled');
 
-      // Phase: testing
       transition('testing');
       const testPassed = await runVerify(opts.repoPath, opts.verifyCommand);
 
@@ -208,7 +205,6 @@ export function createMergeRun(opts: MergeRunOptions): MergeRun {
         return await revert('Verify command failed');
       }
 
-      // Phase: complete
       state.completedAt = new Date().toISOString();
       transition('complete');
       appendMergeLog(opts.mergeLogPath, 'Merge completed successfully');

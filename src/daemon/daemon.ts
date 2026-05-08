@@ -394,7 +394,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
             break;
           }
 
-          let branchOrder: string[];
+          let branchOrder = workers.map((p) => p.branchName);
           if (state.plan?.approvedAt) {
             const planPath = path.join(state.repoPath, state.plan.path);
             const content = readPlanFile(planPath);
@@ -404,11 +404,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
                 .map((t) => state.panes.find((p) => p.paneId === t.assignedTo))
                 .filter((p): p is NonNullable<typeof p> => p !== undefined)
                 .map((p) => p.branchName);
-            } else {
-              branchOrder = workers.map((p) => p.branchName);
             }
-          } else {
-            branchOrder = workers.map((p) => p.branchName);
           }
 
           const verifyCommand = typeof params.verifyCommand === 'string'
@@ -416,14 +412,13 @@ export function createDaemon(opts: DaemonOptions): Daemon {
             : 'npm test';
           const mergeLogPath = path.join(state.repoPath, '.workspace', 'merge-log.md');
 
-          let runRef: MergeRun | null = null;
+          let mergeRunId = '';
           const run = createMergeRun({
             repoPath: state.repoPath,
             branchOrder,
             verifyCommand,
             mergeLogPath,
             onProgress: (phase, detail) => {
-              const mergeRunId = runRef?.state.mergeRunId ?? '';
               paneManager.broadcastNotification(state.id, 'merge.progress', {
                 workspaceId: state.id,
                 mergeRunId,
@@ -432,7 +427,7 @@ export function createDaemon(opts: DaemonOptions): Daemon {
               });
             },
           });
-          runRef = run;
+          mergeRunId = run.state.mergeRunId;
 
           state.mergeState = run.state;
           await registry.update(state);
