@@ -2,6 +2,7 @@ import path from 'node:path';
 import { daemonStatus } from './commands/daemon-status.js';
 import { init } from './commands/init.js';
 import { list } from './commands/list.js';
+import { logs } from './commands/logs.js';
 
 const argv0 = path.basename(process.argv[1] ?? '');
 const args = process.argv.slice(2);
@@ -29,8 +30,12 @@ switch (command) {
     await list();
     break;
 
+  case 'logs':
+    await logs(args.slice(1));
+    break;
+
   default:
     console.error(`Unknown command: ${command ?? '(none)'}`);
-    console.error(`Available commands: init, list, daemon-status`);
+    console.error(`Available commands: init, list, logs, daemon-status`);
     process.exit(1);
 }
