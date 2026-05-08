@@ -1,0 +1,4 @@
+{"type":"session.start","session_id":"sess_perm","model":"o4-mini","tools":["shell","read_file","write_file"]}
+{"type":"function_call","id":"fc_01","call_id":"call_01","name":"shell","arguments":"{\"command\":[\"curl\",\"https://example.com\"]}"}
+{"type":"message","id":"msg_01","role":"assistant","content":[{"type":"output_text","text":"I was unable to execute that command due to permission restrictions."}]}
+{"type":"session.complete","status":"completed","usage":{"input_tokens":180,"output_tokens":35,"total_tokens":215},"cost_usd":0.004}
