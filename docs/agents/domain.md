@@ -49,3 +49,5 @@ If the concept you need isn't in the glossary yet, that's a signal — either yo
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders) — but worth reopening because…_
+
+For Argus specifically: ADRs (the `A1`–`A18` decisions) currently live consolidated in `research/architecture-decisions-v1.md` rather than as numbered files under `docs/adr/`. Read that file when checking for prior decisions. Future per-decision ADRs can be added to `docs/adr/` as they emerge.

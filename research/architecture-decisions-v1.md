@@ -42,6 +42,13 @@ Este documento responde esas preguntas. Las decisiones forman una cadena coheren
 | A9 | Distribución = un solo installer monolítico (`Argus-Setup.exe`) en v0.1 | Trae argusd + GUI + ambos binarios CLI; paquetes separables se evaluarán en v0.2+ |
 | A10 | Tray app pospuesta a v0.2 | Status accesible vía `argus status` desde CLI |
 | A11 | Auto-updater pospuesto (decidir más adelante) | No bloquea v0.1; un re-installer manual alcanza |
+| A12 | Auth con CLIs = trust each CLI's own credential cache | El user corre `claude login` / `codex login` antes; argusd spawnea CLIs con env limpio + `HOME` y los binarios encuentran sus creds en `~/.claude/`, `~/.codex/`, etc. Argus NO maneja secretos en v0.1 |
+| A13 | Adapter interface = vocabulario propio inspirado en ACP, Class + EventEmitter tipado, static dispatch | Cada Adapter extiende una clase abstracta que emite un único evento discriminado `AdapterEvent` (output bytes, message, toolCall.requested/completed, permissionRequest, sentinel, state, error) y acepta input bidireccional para sandbox y `send-to-pane` |
+| A14 | JSON-RPC del daemon = requests con namespaces (`workspace.*`, `pane.*`, `plan.*`, `merge.*`, `daemon.*`) + notifications via subscription explícita (`workspace.attach`/`detach`) | Bytes de PTY van base64 dentro de `pane.event` notifications; `protocolVersion: 1` en el handshake; error codes JSON-RPC estándar + range custom `-32000..-32099` |
+| A15 | Logging = NDJSON estructurado, multi-archivo bajo `%LOCALAPPDATA%\Argus\logs\`, rotación diaria + gzip, retention 14 días | Daemon, workspace-children, y stderr de CLI agents en archivos separados. NO se logea contenido de mensajes del agente ni bytes raw del PTY. Niveles `debug|info|warn|error` con default `info` |
+| A16 | Telemetría = SQLite local en `%LOCALAPPDATA%\Argus\metrics.db`, scope per-user, sin phone-home en v0.1 | Schema con `pane_events`, `pane_summary`, `merge_runs`, `workspace_summary`. Tokens capturados solo cuando el CLI los expone (Claude sí, otros parcial). Subcommand `argus stats` para queries pre-cocidas |
+| A17 | `state.json` = intent-only, schema versionado, atomic write per-workspace en `%LOCALAPPDATA%\Argus\state\workspaces\${id}.json` | Sin PIDs, sin handles. `lastKnownState` es hint para primer paint post-recovery. `userClosed: true` evita relaunch. `mergeState` permite reanudar/revertir merge interrumpido |
+| A18 | Merge agent = subprocess ephemeral spawneado por workspace-child via `argusd --mode merge-agent` | Mismo binario, modo distinto. Sub-agents para conflicts semánticos son `claude`/`codex` regulares spawneados por el merge-agent y aparecen como sub-panes en GUI. `merge.cancel` → SIGTERM/SIGKILL + `git reset --hard ${preMergeTag}` |
 
 ---
 
@@ -185,15 +192,14 @@ La separación correcta: `argusd` es Node puro, `Argus.exe` es Electron, son **d
 
 | Tema | A dónde |
 |---|---|
-| Schema concreto de eventos JSON-RPC (qué notifications, qué requests, qué tipos) | A definirse cuando empiece la implementación, emergente |
-| Forma exacta de `state.json` (campos, versionado, migration) | Idem |
-| Cómo se enchufa cada Adapter concretamente (interface TS, contract de events) | A grillar en sesión separada — es el corazón del producto |
-| Detalles del flujo del Merge agent (subprocess de quién, qué API expone, cómo se cancela) | Idem |
 | Auto-updater | Decisión pospuesta |
 | Tray app / status indicator | v0.2 |
 | Paquetes separables (engine standalone + GUI opcional) | v0.2 evaluación |
 | Cross-platform (Mac, Linux) | v0.2+ — los path del pipe (`\\.\pipe\` vs Unix domain socket) cambian, pero la abstracción JSON-RPC es portable |
 | Multi-instance simultáneo (dev y stable corriendo a la vez) | v0.2 — el override de `ARGUS_PIPE` ya lo permite, falta UX en CLI |
+| Multi-account dentro de un workspace (pane 1 con cuenta A, pane 2 con cuenta B) | v0.2 — requiere abandonar A12 puro y agregar credential injection per-pane |
+| API key support en lugar de login-based auth | v0.2 — útil para CI-style setups; argusd leería de un keystore propio |
+| Phone-home telemetry / opt-in metrics al equipo de Argus | v0.2+ — granular, opt-in explícito, scope mínimo |
 
 ---
 
@@ -215,6 +221,13 @@ Las decisiones nuevas que NO estaban en foundations:
 - A5 (adapters in-process)
 - A8 (binario unificado con `argv[0]` dispatch)
 - A9 (installer monolítico)
+- A12 (auth = trust each CLI's own credential cache)
+- A13 (Adapter interface concreto con `AdapterEvent` discriminado)
+- A14 (JSON-RPC schema con namespaces + subscription model)
+- A15 (logging NDJSON + rotación)
+- A16 (telemetría SQLite local, sin phone-home)
+- A17 (`state.json` shape versionado e intent-only)
+- A18 (merge agent shape concreto)
 
 ---
 
@@ -222,8 +235,358 @@ Las decisiones nuevas que NO estaban en foundations:
 
 - **Naming oficial del producto** — sigue siendo "Argus" tentativo (foundations §7).
 - **Distribución / pricing / licensing** — no tocado.
-- **Telemetría / observabilidad** del daemon — no tocado, importante para dogfooding.
-- **Auth con los CLIs** — los `claude` / `codex` que argusd spawnea ¿asumen que el user ya hizo login en su terminal global?, ¿hay setup wizard?, ¿se hereda el env?
-- **Logging del daemon y workspace-children** — dónde van los logs (`%LOCALAPPDATA%\Argus\logs\`), rotación, niveles.
 
-Algunas de estas son urgencia v0.1, otras v0.2+. Worth tener una sesión específica antes de cerrar el shape de la app.
+Items resueltos en sesiones de grilling subsiguientes (A12–A18) ahora viven en las secciones 12–17 abajo.
+
+---
+
+## 12. Auth con los CLIs (A12)
+
+### Modelo
+
+Cada CLI maneja su propia auth de la manera estándar de la herramienta. Argus no maneja secretos en v0.1.
+
+**Spawn env de los PTY children** — limpio, sin keys de Argus:
+```ts
+const cleanEnv = {
+  PATH: appendWorktreeBin(process.env.PATH),
+  HOME: process.env.HOME ?? process.env.USERPROFILE,
+  USERPROFILE: process.env.USERPROFILE,
+  TEMP: process.env.TEMP, TMP: process.env.TMP,
+  ARGUS_PIPE: argusPipe,                             // discovery del daemon para `workspace done`
+  ARGUS_WORKSPACE_ID: workspaceId,
+  ARGUS_PANE_ID: paneId,
+  // NO ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
+};
+pty.spawn(cliBinary, args, { cwd: worktreePath, env: cleanEnv });
+```
+
+### Por qué
+
+1. Argus no debería estar en el negocio de gestionar secretos. Cada CLI ya tiene su flujo maduro (`claude login`, `codex login`, `gh auth login`).
+2. Aislamiento correcto: `~/.claude/credentials.json` es leído por el binario `claude` durante su startup, **antes** de que el adapter intercepte tool calls. Por contraste, el sandbox bloquea tool calls del agente que intenten leer `~/.aws/`, `~/.ssh/`, etc. Layering temporal: auth → adapter activo.
+3. Inheritance del shell env (alternativa rechazada) es frágil en Windows porque argusd lazy-spawneado desde Start Menu no carga `.zshrc`.
+4. Argus-managed credential store (alternativa rechazada) explota en escope: UI de gestión, rotación, multi-account, encrypted-at-rest. Producto adentro del producto.
+
+### `argus doctor`
+
+Subcommand obligatorio en v0.1. Verifica:
+- Cada CLI configurado en el ratio del workspace está en PATH.
+- Cada CLI puede ejecutar un comando trivial sin error de auth (e.g., `claude --version`, `codex --version`).
+- Worktrees del workspace existen y están en el branch esperado.
+- Conexión al named pipe del daemon funciona.
+- Versión del daemon, GUI, y CLI binary coinciden.
+
+Output: una línea verde/roja por check, con remediation hint cuando falla.
+
+### Onboarding doc
+
+> "Antes de usar Argus, asegurate de tener instalados y autenticados los CLIs que pensás usar (`claude login`, `codex login`, etc.). Argus no maneja credenciales — cada CLI maneja las suyas. Corré `argus doctor` para verificar."
+
+---
+
+## 13. Adapter interface (A13)
+
+### Vocabulario interno
+
+Inspirado en ACP semánticamente, pero **propio** — no nos atamos a un spec en preview que sigue cambiando.
+
+```ts
+type PaneState =
+  | 'idle'           // CLI vivo, esperando input
+  | 'thinking'       // agente generando respuesta
+  | 'toolUse'        // agente ejecutando tool
+  | 'waitingPerm'    // esperando permission decision del workspace-child o user
+  | 'done'           // emitió `workspace done`
+  | 'blocked'        // emitió `workspace blocked`
+  | 'dead';          // PTY muerto
+
+type AdapterEvent =
+  | { kind: 'output'; bytes: Buffer }
+  | { kind: 'state'; state: PaneState; reason?: string }
+  | { kind: 'message'; role: 'assistant'; text: string; partial: boolean }
+  | { kind: 'thinking'; text: string; partial: boolean }
+  | { kind: 'toolCall.requested'; id: string; tool: string; args: unknown }
+  | { kind: 'toolCall.completed'; id: string; result: unknown; durationMs: number }
+  | { kind: 'permissionRequest'; id: string; what: string; risk: 'low'|'medium'|'high' }
+  | { kind: 'sentinel'; cmd: 'done'|'blocked'|'status'; payload: unknown }
+  | { kind: 'usage'; tokensIn?: number; tokensOut?: number; costUsd?: number }
+  | { kind: 'error'; source: 'parser'|'cli'|'pty'; message: string };
+```
+
+### Base class
+
+```ts
+abstract class Adapter extends TypedEmitter<{
+  event: (e: AdapterEvent) => void;
+  exit: (code: number | null) => void;
+}> {
+  abstract readonly cliKind: 'claude' | 'codex' | 'opencode' | 'pi' | 'copilot';
+
+  abstract start(pty: IPty, ctx: AdapterContext): void;
+  abstract dispose(): Promise<void>;
+
+  abstract sendInput(text: string): void;
+  abstract decideToolCall(id: string, decision: 'allow'|'deny', reason?: string): void;
+  abstract decidePermission(id: string, decision: 'allow'|'deny', reason?: string): void;
+  abstract interrupt(): void;
+}
+
+interface AdapterContext {
+  worktreePath: string;
+  paneId: string;
+  workspaceId: string;
+  // Deliberadamente NO: socket del daemon, otras panes, estado global.
+}
+```
+
+### Por qué este shape
+
+- **Vocabulario propio (β) en lugar de ACP estricto**: ACP es uno de los 5 dialectos que adaptamos, no superset. Cuando aparezca el sexto CLI ACP-nativo, escribimos `AcpAdapter` que es 80% identidad. Vale el costo vs. atarse a un spec en preview.
+- **Single discriminated event** en lugar de N event names: switches exhaustivos a nivel TypeScript, fácil de loggear, persistir, replicar por IPC.
+- **`output: Buffer` separado del mensaje semántico**: xterm.js necesita los bytes byte-perfect (escape sequences, ANSI). Adapter expone ambos.
+- **`sentinel` como evento del adapter** aunque viene del binario `workspace`: el workspace-child no tiene que saber dos rutas (PTY stdout vs. ARGUS_PIPE callback), el adapter normaliza la fuente.
+- **`AdapterContext` minimalista**: la disciplina de "interface promovible" (A5) puesta en código. Si v0.2 mueve el adapter a subprocess separado, lo único que hay que serializar son 3 strings.
+- **EventEmitter (I) vs async iterator (II)**: necesitamos fan-out (workspace-child + GUI streamers + logger + metrics collector). EventEmitter es trivial; async iterators requieren un broker.
+
+### Interceptación bidireccional
+
+Cada adapter mapea su CLI a las primitivas comunes:
+
+| Primitiva | Claude Code | Codex | OpenCode | Pi | Copilot |
+|---|---|---|---|---|---|
+| Tool decision | `PreToolUse` hook | `notify` hook | `tool.execute.before` | RPC bidi | ACP `permission.request` |
+| Send input | stdin del PTY | stdin del PTY | HTTP POST | RPC | stdin |
+| Interrupt | SIGINT / Esc | SIGINT | HTTP POST | RPC | SIGINT |
+
+---
+
+## 14. Schema JSON-RPC del daemon (A14)
+
+### Requests (client → daemon)
+
+Namespaced. v0.1:
+
+| Method | Params | Returns | Quién lo usa |
+|---|---|---|---|
+| `daemon.status` | `{}` | `{version, uptime, workspaceCount, protocolVersion}` | doctor, GUI handshake |
+| `daemon.shutdown` | `{graceMs?}` | `{}` | admin CLI |
+| `workspace.create` | `{name, agentRatio, repoPath, plan?}` | `{workspaceId}` | GUI, `argus init` |
+| `workspace.list` | `{}` | `{workspaces: WorkspaceSummary[]}` | GUI sidebar, `argus list` |
+| `workspace.get` | `{id}` | `{workspace: WorkspaceFull}` | GUI on attach |
+| `workspace.attach` | `{id, since?}` | `{}` | GUI cuando muestra el grid |
+| `workspace.detach` | `{id}` | `{}` | GUI al cerrar tab |
+| `workspace.delete` | `{id, cleanWorktrees}` | `{}` | `argus clean`, GUI |
+| `pane.send` | `{paneId, text}` | `{}` | lead pane (`send-to-pane`), GUI |
+| `pane.interrupt` | `{paneId}` | `{}` | GUI Esc, lead pane |
+| `pane.decideTool` | `{paneId, callId, decision, reason?}` | `{}` | sandbox UI |
+| `pane.decidePermission` | `{paneId, requestId, decision, reason?}` | `{}` | permission UI |
+| `plan.approve` | `{workspaceId}` | `{}` | GUI, `argus open` flow |
+| `plan.update` | `{workspaceId, content}` | `{}` | GUI plan editor |
+| `merge.start` | `{workspaceId}` | `{mergeRunId}` | GUI merge button |
+| `merge.cancel` | `{workspaceId}` | `{}` | GUI |
+| `sentinel.report` | `{workspaceId, paneId, cmd, payload}` | `{}` | binario `workspace` (interno) |
+
+### Notifications (daemon → client) — solo después de `workspace.attach`
+
+| Method | Params | Cuándo |
+|---|---|---|
+| `pane.event` | `{workspaceId, paneId, event: AdapterEvent}` (bytes en base64 si `kind === 'output'`) | cualquier evento del adapter |
+| `workspace.stateChanged` | `{workspaceId, state}` | cambios high-level (planning, working, merging, complete) |
+| `merge.progress` | `{workspaceId, mergeRunId, phase, detail?}` | durante merge |
+| `daemon.shuttingDown` | `{graceMs}` | argusd va a apagarse |
+
+### Convenciones
+
+- **Subscription explícita**: `workspace.attach` registra al cliente. Sin attach no hay notifications. Ahorra IPC cuando hay 3 workspaces abiertos pero solo uno visible.
+- **PTY bytes en base64** dentro de `pane.event` con `kind: 'output'`. Overhead 33%, simple, suficiente para localhost.
+- **`protocolVersion: 1`** en `daemon.status` y handshake. Mismatch → error claro.
+- **Errores**: códigos JSON-RPC estándar (`-32600..-32603`, `-32700`) + range custom `-32000..-32099`:
+  - `-32001 WorkspaceNotFound`
+  - `-32002 PaneDead`
+  - `-32003 WorkspaceLocked` (otra operación en curso)
+  - `-32004 ProtocolVersionMismatch`
+  - `-32005 SandboxViolation`
+
+---
+
+## 15. Logging (A15)
+
+### Layout en disco
+
+```
+%LOCALAPPDATA%\Argus\logs\
+├── daemon\
+│   ├── 2026-05-08.log          (current, NDJSON)
+│   └── 2026-05-07.log.gz       (rotated + gzipped)
+├── workspace-${id}\
+│   └── 2026-05-08.log
+└── pane-stderr\
+    └── ${workspace}-${pane}-2026-05-08.log
+```
+
+### Formato
+
+NDJSON, una línea por evento:
+```json
+{"ts":"2026-05-08T14:23:01.234Z","level":"info","source":"workspace-child","workspaceId":"auth-flow","paneId":"pane-3","msg":"sandbox: blocked tool call","tool":"git_push","reason":"escapes worktree"}
+```
+
+### Política
+
+- **Niveles**: `debug | info | warn | error`. Default `info`. Override `argus config set log.level debug` o env `ARGUS_LOG=debug`.
+- **Qué se logea**: lifecycle (workspace/pane/merge), sandbox decisions (allowed y blocked, para auditoría), errores del adapter, errores del IPC, comandos de cliente al daemon, `argus doctor` runs.
+- **Qué NO se logea**: contenido de mensajes del agente (privacy + ruido enorme), bytes raw del PTY (van a xterm.js).
+- **Rotación**: diaria + gzip, retention 14 días, configurable.
+- **Stderr de los CLI agents**: archivo separado per-pane. Captura panics del CLI, errores de red — útil para debugging del CLI mismo, no de Argus.
+- **Subcommand**: `argus logs --follow [--workspace X] [--level debug]` (tail), `argus logs export` (zip de los últimos N días para reportar bugs).
+
+---
+
+## 16. Telemetría / métricas (A16)
+
+### Storage
+
+`%LOCALAPPDATA%\Argus\metrics.db` — SQLite. Schema:
+
+```sql
+CREATE TABLE pane_events (
+  id INTEGER PRIMARY KEY,
+  ts TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  pane_id TEXT NOT NULL,
+  event_kind TEXT NOT NULL,
+  duration_ms INTEGER,
+  payload_json TEXT
+);
+
+CREATE TABLE pane_summary (
+  workspace_id TEXT NOT NULL,
+  pane_id TEXT NOT NULL,
+  cli TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  total_thinking_ms INTEGER DEFAULT 0,
+  total_tool_use_ms INTEGER DEFAULT 0,
+  tokens_in INTEGER,
+  tokens_out INTEGER,
+  cost_usd REAL,
+  tool_calls_total INTEGER DEFAULT 0,
+  tool_calls_blocked INTEGER DEFAULT 0,
+  terminal_state TEXT,
+  PRIMARY KEY (workspace_id, pane_id)
+);
+
+CREATE TABLE merge_runs (
+  id INTEGER PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  conflicts_auto INTEGER DEFAULT 0,
+  conflicts_human INTEGER DEFAULT 0,
+  tests_passed INTEGER,
+  reverted INTEGER DEFAULT 0
+);
+
+CREATE TABLE workspace_summary (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  closed_at TEXT,
+  panes_total INTEGER DEFAULT 0,
+  merges_total INTEGER DEFAULT 0
+);
+```
+
+### Política
+
+- **Por qué SQLite**: zero-config, single file, atomic writes, queryable con SQL. Vs. JSON files (sin queries decentes), vs. timeseries DB (overkill v0.1).
+- **Tokens**: capturados solo cuando el CLI los expone (Claude sí completo, Codex parcial, Pi sí, OpenCode sí, Copilot CLI parcial). Cuando no, `null`. **No** estimamos por longitud de mensaje — engaña.
+- **Costos**: derivados de tokens × precio por modelo en una tabla de pricing en código (actualizable por config). Gap honesto cuando el CLI no expone tokens.
+- **Phone-home: NO en v0.1**. Todo local. Si en v0.2 agregamos opt-in a Argus team, será granular y consentido explícito.
+- **`argus stats`**: queries pre-cocidas:
+  - `argus stats today`
+  - `argus stats workspace ${id}`
+  - `argus stats workspace ${id} --cost`
+  - `argus stats by-cli` (uso/costo agregado por tipo de CLI)
+- **GUI charts**: v0.2.
+
+---
+
+## 17. `state.json` shape (A17)
+
+### Path
+
+`%LOCALAPPDATA%\Argus\state\workspaces\${id}.json` — un archivo per Workspace.
+
+### Schema
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "auth-flow",
+  "createdAt": "2026-05-08T10:00:00Z",
+  "repoPath": "C:\\Users\\lauta\\projects\\argus",
+  "agentRatio": [
+    {"cli": "claude", "count": 5},
+    {"cli": "codex", "count": 3}
+  ],
+  "panes": [
+    {
+      "paneId": "pane-1",
+      "role": "lead",
+      "cli": "claude",
+      "worktreeRelPath": ".workspace/worktrees/agent-1",
+      "branchName": "workspace/auth-flow/lead",
+      "userClosed": false,
+      "lastKnownState": "thinking"
+    }
+  ],
+  "plan": {
+    "path": ".workspace/plan.md",
+    "approvedAt": "2026-05-08T10:15:00Z"
+  },
+  "mergeState": null
+}
+```
+
+### Reglas
+
+- **Atomic write**: `${id}.json.tmp` + `fsync` + `rename`. Una escritura por cambio.
+- **Versionado**: `schemaVersion` entero. Migrations en código al leer.
+- **Intent-only**: sin PIDs, sin handles, sin sockets, sin paths runtime.
+- **`lastKnownState` es hint**, no source of truth. Solo afecta primer paint post-recovery.
+- **`userClosed: true`** indica que el user cerró la pane explícitamente — recovery NO la relanza. Diferencia clave con `lastKnownState: 'dead'`.
+- **`mergeState`**: `null` o `{phase, preMergeTag, startedAt, currentWorker?}`. Si argusd crashea durante un merge, recovery sabe que hay que ofrecer al user reanudar o revertir.
+
+---
+
+## 18. Merge agent (A18)
+
+### Spawn
+
+El workspace-child invoca:
+```
+argusd --mode merge-agent --workspace ${id} --pre-merge-tag ${tag}
+```
+
+Mismo binario, modo distinto via `argv[0]`-style dispatch (consistente con A8). Hereda `ARGUS_PIPE` para reportar al daemon.
+
+### API
+
+El merge-agent expone su propio `paneId` ephemeral (`pane-merge-${ts}`) y emite los `AdapterEvent` regulares más eventos extra:
+
+```ts
+type MergeEvent =
+  | { kind: 'merge.phase'; phase: 'tagging'|'merging'|'resolving'|'testing'|'complete'|'reverted'; workerIdx?: number }
+  | { kind: 'merge.conflict.semantic'; file: string; subAgentId: string }
+  | { kind: 'merge.conflict.escalate'; file: string; reason: string }
+  | { kind: 'merge.testResult'; passed: boolean; output: string };
+```
+
+### Mecánica
+
+- **Sub-agents para conflicts semánticos**: `claude`/`codex` regulares spawneados por el merge-agent con context constrained (archivo en conflicto + diff de los workers involucrados). Aparecen en GUI como **sub-panes** del pane-merge, no como panes regulares del workspace.
+- **`merge.cancel`**: el daemon manda SIGTERM al merge-agent, espera 5s, después SIGKILL. Acto seguido `git reset --hard ${preMergeTag}` y emite `merge.phase: reverted`.
+- **El merge-agent NO está sandboxed**: es el único proceso autorizado a tocar `main`. Auditoría va al `merge-log.md` per-merge.
+- **Tests post-merge**: corre `verify_command` (default `npm test`, configurable per-workspace en `.workspace/config.json`). Timeout default 5 min. Fail → revert automático.
+- **Idempotencia**: si argusd crashea durante el merge, `mergeState` en `state.json` permite recovery — al boot, daemon ofrece al user "merge interrumpido en fase X. ¿reanudar o revertir?".
