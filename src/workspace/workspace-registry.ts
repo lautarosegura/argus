@@ -11,6 +11,7 @@ export interface WorkspaceRegistry {
   create(params: CreateWorkspaceParams): Promise<WorkspaceState>;
   list(): Promise<WorkspaceSummary[]>;
   get(id: string): Promise<WorkspaceState>;
+  update(state: WorkspaceState): Promise<void>;
   delete(id: string): Promise<void>;
 }
 
@@ -90,6 +91,14 @@ export function createWorkspaceRegistry(stateDir: string): WorkspaceRegistry {
           paneCount: state.panes.length,
         };
       });
+    },
+
+    async update(state) {
+      const filePath = statePath(stateDir, state.id);
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Workspace "${state.id}" not found`);
+      }
+      atomicWrite(filePath, JSON.stringify(state, null, 2));
     },
 
     async get(id) {

@@ -20,6 +20,7 @@ import {
 } from '../shared/protocol.js';
 import { createWorkspaceRegistry, type WorkspaceRegistry } from '../workspace/workspace-registry.js';
 import type { CreateWorkspaceParams } from '../workspace/workspace-types.js';
+import { provisionWorkspace, cleanWorkspace } from '../workspace/worktree-manager.js';
 
 export interface DaemonOptions {
   pipePath: string;
@@ -97,6 +98,13 @@ export function createDaemon(opts: DaemonOptions): Daemon {
         try {
           const createParams = params as unknown as CreateWorkspaceParams;
           const state = await registry.create(createParams);
+          const panes = await provisionWorkspace(
+            state.repoPath,
+            state.name,
+            state.agentRatio,
+          );
+          state.panes = panes;
+          await registry.update(state);
           socket.write(encodeMessage(makeResponse(req.id, { workspaceId: state.id })));
         } catch (err) {
           socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, toErrorMessage(err))));
@@ -134,6 +142,10 @@ export function createDaemon(opts: DaemonOptions): Daemon {
           break;
         }
         try {
+          if (params.cleanWorktrees) {
+            const state = await registry.get(params.id as string);
+            await cleanWorkspace(state.repoPath, state.panes);
+          }
           await registry.delete(params.id as string);
           socket.write(encodeMessage(makeResponse(req.id, {})));
         } catch (err) {
