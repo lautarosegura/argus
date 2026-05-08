@@ -1,5 +1,7 @@
 /** @type {PaneGrid | null} */
 let grid = null;
+/** @type {PlanEditor | null} */
+let planEditor = null;
 const form = new WorkspaceForm();
 let currentWorkspaceId = null;
 
@@ -43,13 +45,40 @@ async function openWorkspace(id) {
     if (grid) {
       grid.dispose();
     }
+    if (planEditor) {
+      planEditor.dispose();
+      planEditor = null;
+    }
 
     mainContent.innerHTML = '';
     mainContent.style.display = 'flex';
+    mainContent.style.flexDirection = 'column';
     mainContent.style.flex = '1';
 
+    if (workspace.plan) {
+      try {
+        const planData = await window.argus.getPlan(id);
+        const planContainer = document.createElement('div');
+        planContainer.style.padding = '8px';
+        mainContent.appendChild(planContainer);
+
+        planEditor = new PlanEditor(planContainer);
+        planEditor.render(id, planData, (result) => {
+          // Plan was approved — workers can be spawned with tasks
+        });
+      } catch {
+        // Plan fetch failed — continue without plan editor
+      }
+    }
+
+    const gridContainer = document.createElement('div');
+    gridContainer.style.flex = '1';
+    gridContainer.style.display = 'flex';
+    gridContainer.style.overflow = 'hidden';
+    mainContent.appendChild(gridContainer);
+
     const nodeModulesPath = await window.argus.getNodeModulesPath();
-    grid = new PaneGrid(mainContent);
+    grid = new PaneGrid(gridContainer);
     await grid.loadXterm(nodeModulesPath);
 
     grid.render(workspace.panes, async (paneId, text) => {

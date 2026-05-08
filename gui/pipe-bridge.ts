@@ -18,6 +18,10 @@ export interface PipeBridge {
   sendToPane(paneId: string, text: string): Promise<void>;
   interruptPane(paneId: string): Promise<void>;
 
+  getPlan(workspaceId: string): Promise<{ content: string | null; approvedAt: string | null }>;
+  updatePlan(workspaceId: string, content: string): Promise<void>;
+  approvePlan(workspaceId: string): Promise<{ approvedAt: string; tasks: Array<{ id: string; assignedTo: string; dependsOn: string[] }> }>;
+
   onNotification(handler: (method: string, params: unknown) => void): void;
 }
 
@@ -93,6 +97,18 @@ export function createPipeBridge(pipePath: string): PipeBridge {
 
     async interruptPane(paneId) {
       await assertConnected().request('pane.interrupt', { paneId });
+    },
+
+    async getPlan(workspaceId) {
+      return (await assertConnected().request('plan.get', { workspaceId })) as { content: string | null; approvedAt: string | null };
+    },
+
+    async updatePlan(workspaceId, content) {
+      await assertConnected().request('plan.update', { workspaceId, content });
+    },
+
+    async approvePlan(workspaceId) {
+      return (await assertConnected().request('plan.approve', { workspaceId })) as { approvedAt: string; tasks: Array<{ id: string; assignedTo: string; dependsOn: string[] }> };
     },
 
     onNotification(handler) {

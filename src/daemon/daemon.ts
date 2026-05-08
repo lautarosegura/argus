@@ -22,6 +22,8 @@ import { createWorkspaceRegistry, type WorkspaceRegistry } from '../workspace/wo
 import type { CreateWorkspaceParams } from '../workspace/workspace-types.js';
 import { provisionWorkspace, cleanWorkspace } from '../workspace/worktree-manager.js';
 import { createPaneManager } from '../pane/pane-manager.js';
+import { parsePlan, readPlanFile, writePlanFile } from '../plan/plan.js';
+import path from 'node:path';
 
 export interface DaemonOptions {
   pipePath: string;
@@ -252,6 +254,88 @@ export function createDaemon(opts: DaemonOptions): Daemon {
           params.reason as string | undefined,
         );
         socket.write(encodeMessage(makeResponse(req.id, {})));
+        break;
+      }
+
+      case 'plan.update': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, 'No state directory configured')));
+          break;
+        }
+        try {
+          const state = await registry.get(params.workspaceId as string);
+          if (!state.plan) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, 'Plan not configured for this workspace')));
+            break;
+          }
+          if (state.plan.approvedAt) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, 'Plan already approved — cannot update')));
+            break;
+          }
+          const planPath = path.join(state.repoPath, state.plan.path);
+          writePlanFile(planPath, params.content as string);
+          socket.write(encodeMessage(makeResponse(req.id, {})));
+        } catch (err) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
+        }
+        break;
+      }
+
+      case 'plan.get': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, 'No state directory configured')));
+          break;
+        }
+        try {
+          const state = await registry.get(params.workspaceId as string);
+          if (!state.plan) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, 'Plan not configured for this workspace')));
+            break;
+          }
+          const planPath = path.join(state.repoPath, state.plan.path);
+          const content = readPlanFile(planPath);
+          socket.write(encodeMessage(makeResponse(req.id, {
+            content,
+            approvedAt: state.plan.approvedAt,
+          })));
+        } catch (err) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
+        }
+        break;
+      }
+
+      case 'plan.approve': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, 'No state directory configured')));
+          break;
+        }
+        try {
+          const state = await registry.get(params.workspaceId as string);
+          if (!state.plan) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, 'Plan not configured for this workspace')));
+            break;
+          }
+          if (state.plan.approvedAt) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, 'Plan already approved')));
+            break;
+          }
+          const planPath = path.join(state.repoPath, state.plan.path);
+          const content = readPlanFile(planPath);
+          if (!content) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INVALID_PARAMS, 'No plan content — write the plan before approving')));
+            break;
+          }
+          const plan = parsePlan(content);
+          const approvedAt = new Date().toISOString();
+          state.plan.approvedAt = approvedAt;
+          await registry.update(state);
+          socket.write(encodeMessage(makeResponse(req.id, {
+            approvedAt,
+            tasks: plan.tasks,
+          })));
+        } catch (err) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
+        }
         break;
       }
 

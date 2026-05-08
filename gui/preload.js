@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('argus', {
   deleteWorkspace: (id, cleanWorktrees) => ipcRenderer.invoke('bridge:deleteWorkspace', id, cleanWorktrees),
   sendToPane: (paneId, text) => ipcRenderer.invoke('bridge:sendToPane', paneId, text),
   interruptPane: (paneId) => ipcRenderer.invoke('bridge:interruptPane', paneId),
+  getPlan: (workspaceId) => ipcRenderer.invoke('bridge:getPlan', workspaceId),
+  updatePlan: (workspaceId, content) => ipcRenderer.invoke('bridge:updatePlan', workspaceId, content),
+  approvePlan: (workspaceId) => ipcRenderer.invoke('bridge:approvePlan', workspaceId),
   isConnected: () => ipcRenderer.invoke('bridge:isConnected'),
   getNodeModulesPath: () => ipcRenderer.invoke('get:nodeModulesPath'),
 

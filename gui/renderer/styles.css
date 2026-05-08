@@ -309,6 +309,70 @@ body {
   margin-top: 8px;
 }
 
+/* Plan editor */
+.plan-editor {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 200px;
+  max-height: 40vh;
+}
+
+.plan-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.plan-editor-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.plan-editor-textarea {
+  flex: 1;
+  resize: none;
+  padding: 12px;
+  background: var(--bg);
+  border: none;
+  color: var(--text);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+  min-height: 120px;
+}
+
+.plan-editor-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.plan-editor-textarea[readonly] {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.plan-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.plan-editor-error {
+  color: var(--red);
+  font-size: 12px;
+  padding: 0 12px 8px;
+}
+
 /* Connection status */
 .disconnected-banner {
   padding: 8px 16px;

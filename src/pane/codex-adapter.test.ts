@@ -53,6 +53,7 @@ const CTX: AdapterContext = {
   worktreePath: '/tmp/worktree',
   paneId: 'agent-1',
   workspaceId: 'test-workspace',
+  paneRole: 'worker',
 };
 
 function collectEvents(adapter: CodexAdapter): Promise<AdapterEvent[]> {

@@ -107,6 +107,21 @@ function registerIpcHandlers(): void {
     return bridge.interruptPane(paneId);
   });
 
+  ipcMain.handle('bridge:getPlan', async (_e, workspaceId: string) => {
+    if (!bridge) throw new Error('Not connected');
+    return bridge.getPlan(workspaceId);
+  });
+
+  ipcMain.handle('bridge:updatePlan', async (_e, workspaceId: string, content: string) => {
+    if (!bridge) throw new Error('Not connected');
+    return bridge.updatePlan(workspaceId, content);
+  });
+
+  ipcMain.handle('bridge:approvePlan', async (_e, workspaceId: string) => {
+    if (!bridge) throw new Error('Not connected');
+    return bridge.approvePlan(workspaceId);
+  });
+
   ipcMain.handle('bridge:isConnected', () => {
     return bridge?.isConnected() ?? false;
   });
