@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' file: argus-asset:;">
+  <title>Argus</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <div class="header">
+      <div>
+        <span class="header-title">Argus</span>
+        <span class="header-workspace-name" id="workspace-name"></span>
+      </div>
+      <span class="header-status" id="connection-status">connecting...</span>
+    </div>
+    <div id="disconnected-banner" class="disconnected-banner" style="display:none">
+      Disconnected from argusd. Retrying...
+    </div>
+    <div id="main-content"></div>
+  </div>
+
+  <script src="workspace-form.js"></script>
+  <script src="grid.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -12,6 +12,6 @@
     "sourceMap": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.ts", "cli/**/*.ts"],
+  "include": ["src/**/*.ts", "cli/**/*.ts", "gui/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
