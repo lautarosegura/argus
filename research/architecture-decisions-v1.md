@@ -590,3 +590,35 @@ type MergeEvent =
 - **El merge-agent NO está sandboxed**: es el único proceso autorizado a tocar `main`. Auditoría va al `merge-log.md` per-merge.
 - **Tests post-merge**: corre `verify_command` (default `npm test`, configurable per-workspace en `.workspace/config.json`). Timeout default 5 min. Fail → revert automático.
 - **Idempotencia**: si argusd crashea durante el merge, `mergeState` en `state.json` permite recovery — al boot, daemon ofrece al user "merge interrumpido en fase X. ¿reanudar o revertir?".
+
+---
+
+## 19. Test runner split: vitest + bun test (A19)
+
+### Decisión
+
+Dos test runners, divididos por runtime de producción:
+
+- **vitest** para todos los módulos que corren bajo Node en prod: `argusd`, `workspace-child`, adapters, sandbox, worktree-manager, merge-runner, metrics-store, logger, pipe-server, GUI logic (renderer + main process).
+- **bun test** para el paquete del CLI binary (`cli/`) que se compila con `bun build --compile` (A8) y corre bajo Bun runtime en prod: pipe-client, cli-router, doctor, sentinel commands.
+
+### Reglas
+
+- **Línea divisoria**: directorio, no nombre de archivo. Tests bajo `cli/` corren con bun test; el resto con vitest.
+- **Convención de archivos**: `*.test.ts` colocado al lado del módulo (per PRD §Testing Decisions).
+- **Fixtures**: `<module>/__fixtures__/` (per PRD).
+- **TypeScript end-to-end** (consistente con A6): ambos runners corren TS sin transpile step manual.
+- **CI**: dos pasos secuenciales — `npm test` (vitest) y `bun test cli/`. Ambos deben pasar para mergear.
+- **Tests external-behavior only**: no mocking de parsers, git, SQL, ni helpers internos (per PRD §What makes a good test here).
+
+### Por qué split y no un solo runner
+
+- argusd y workspace-child usan named pipes Win32, `child_process.fork`, y fsync semantics que son Node-nativos. Testearlos bajo Bun puede esconder bugs runtime-específicos.
+- El CLI binary se distribuye como ejecutable Bun-compilado. Sus dependencies (named pipe client, argv dispatch) deben verificarse en el runtime que el usuario va a ejecutar.
+- "Pasa en CI con runner X, falla en prod con runtime Y" es exactamente el bug que el split previene.
+
+### Costo aceptado
+
+- Dos configs (`vitest.config.ts` + `bunfig.toml`).
+- Dos pasos en CI.
+- Disciplina sobre dónde vive cada test (resuelta por la regla del directorio).
