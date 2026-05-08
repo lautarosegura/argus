@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"sess_tool","tools":["Read","Write","Bash"],"model":"claude-sonnet-4-20250514"}
+{"type":"assistant","message":{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"I need to read the file to understand the code."},{"type":"tool_use","id":"toolu_01","name":"Read","input":{"file_path":"/tmp/test.ts"}}],"model":"claude-sonnet-4-20250514","stop_reason":"tool_use","usage":{"input_tokens":200,"output_tokens":50}}}
+{"type":"assistant","message":{"id":"msg_02","type":"message","role":"assistant","content":[{"type":"text","text":"The file contains a simple variable declaration: `const x = 1;`"}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":300,"output_tokens":20}}}
+{"type":"result","subtype":"success","duration_ms":5000,"cost_usd":0.008,"input_tokens":500,"output_tokens":70,"num_turns":2,"session_id":"sess_tool"}

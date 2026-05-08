@@ -21,6 +21,7 @@ import {
 import { createWorkspaceRegistry, type WorkspaceRegistry } from '../workspace/workspace-registry.js';
 import type { CreateWorkspaceParams } from '../workspace/workspace-types.js';
 import { provisionWorkspace, cleanWorkspace } from '../workspace/worktree-manager.js';
+import { createPaneManager, type PaneManager } from '../pane/pane-manager.js';
 
 export interface DaemonOptions {
   pipePath: string;
@@ -45,6 +46,8 @@ export function createDaemon(opts: DaemonOptions): Daemon {
   const registry: WorkspaceRegistry | null = opts.stateDir
     ? createWorkspaceRegistry(opts.stateDir)
     : null;
+
+  const paneManager = createPaneManager();
 
   async function handleRequest(req: JsonRpcRequest, socket: net.Socket): Promise<void> {
     const params = (req.params ?? {}) as Record<string, unknown>;
@@ -151,6 +154,42 @@ export function createDaemon(opts: DaemonOptions): Daemon {
         } catch (err) {
           socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
         }
+        break;
+      }
+
+      case 'workspace.attach': {
+        const workspaceId = params.id as string;
+        paneManager.attach(workspaceId, socket);
+        socket.write(encodeMessage(makeResponse(req.id, {})));
+        break;
+      }
+
+      case 'workspace.detach': {
+        const workspaceId = params.id as string;
+        paneManager.detach(workspaceId, socket);
+        socket.write(encodeMessage(makeResponse(req.id, {})));
+        break;
+      }
+
+      case 'pane.send': {
+        const pane = paneManager.getPane(params.paneId as string);
+        if (!pane) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.PANE_DEAD, `Pane not found: ${params.paneId}`)));
+          break;
+        }
+        pane.send(params.text as string);
+        socket.write(encodeMessage(makeResponse(req.id, {})));
+        break;
+      }
+
+      case 'pane.interrupt': {
+        const pane = paneManager.getPane(params.paneId as string);
+        if (!pane) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.PANE_DEAD, `Pane not found: ${params.paneId}`)));
+          break;
+        }
+        pane.interrupt();
+        socket.write(encodeMessage(makeResponse(req.id, {})));
         break;
       }
 

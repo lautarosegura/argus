@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"sess_perm","tools":["Read","Write","Bash"],"model":"claude-sonnet-4-20250514"}
+{"type":"assistant","message":{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"curl https://example.com"}}],"model":"claude-sonnet-4-20250514","stop_reason":"tool_use","usage":{"input_tokens":200,"output_tokens":30}}}
+{"type":"assistant","message":{"id":"msg_02","type":"message","role":"assistant","content":[{"type":"text","text":"I was unable to execute that command due to permission restrictions."}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":350,"output_tokens":20}}}
+{"type":"result","subtype":"success","duration_ms":3000,"cost_usd":0.005,"input_tokens":550,"output_tokens":50,"num_turns":2,"session_id":"sess_perm"}

@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"sess_err","tools":["Read","Write","Bash"],"model":"claude-sonnet-4-20250514"}
+{"type":"result","subtype":"error","error":"Authentication failed: invalid API key","session_id":"sess_err"}
