@@ -193,6 +193,38 @@ export function createDaemon(opts: DaemonOptions): Daemon {
         break;
       }
 
+      case 'sentinel.report': {
+        if (!registry) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.INTERNAL_ERROR, 'No state directory configured')));
+          break;
+        }
+        const workspaceId = params.workspaceId as string;
+        const paneId = params.paneId as string;
+        const cmd = params.cmd as 'done' | 'blocked' | 'status';
+        const payload = params.payload;
+
+        try {
+          const state = await registry.get(workspaceId);
+          const paneState = state.panes.find((p) => p.paneId === paneId);
+          if (!paneState) {
+            socket.write(encodeMessage(makeError(req.id, RpcErrorCode.PANE_DEAD, `Pane not found: ${paneId}`)));
+            break;
+          }
+
+          paneManager.reportSentinel({ workspaceId, paneId, cmd, payload });
+
+          if (cmd === 'done' || cmd === 'blocked') {
+            paneState.lastKnownState = cmd;
+            await registry.update(state);
+          }
+
+          socket.write(encodeMessage(makeResponse(req.id, {})));
+        } catch (err) {
+          socket.write(encodeMessage(makeError(req.id, RpcErrorCode.WORKSPACE_NOT_FOUND, toErrorMessage(err))));
+        }
+        break;
+      }
+
       default:
         socket.write(
           encodeMessage(

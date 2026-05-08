@@ -4,6 +4,7 @@ import { daemonStatus } from './commands/daemon-status.js';
 import { init } from './commands/init.js';
 import { list } from './commands/list.js';
 import { logs } from './commands/logs.js';
+import { sentinel } from './commands/sentinel.js';
 
 const argv0 = path.basename(process.argv[1] ?? '');
 const args = process.argv.slice(2);
@@ -11,9 +12,8 @@ const args = process.argv.slice(2);
 const isWorkspaceCli = argv0 === 'workspace' || argv0 === 'workspace.exe';
 
 if (isWorkspaceCli) {
-  console.error(`workspace CLI only supports: done, blocked, status`);
-  console.error(`For admin commands, use argus.`);
-  process.exit(1);
+  await sentinel(args);
+  process.exit(0);
 }
 
 const command = args[0];

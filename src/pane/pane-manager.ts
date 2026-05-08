@@ -2,6 +2,13 @@ import type { IPty, AdapterContext } from './adapter-types.js';
 import { createPane, type Pane, type PaneEventNotification } from './pane.js';
 import type net from 'node:net';
 
+export interface SentinelReport {
+  workspaceId: string;
+  paneId: string;
+  cmd: 'done' | 'blocked' | 'status';
+  payload: unknown;
+}
+
 export interface PaneManager {
   createPane(pty: IPty, cliKind: string, ctx: AdapterContext): Pane;
   getPane(paneId: string): Pane | undefined;
@@ -9,6 +16,7 @@ export interface PaneManager {
   removePane(paneId: string): void;
   attach(workspaceId: string, socket: net.Socket): void;
   detach(workspaceId: string, socket: net.Socket): void;
+  reportSentinel(report: SentinelReport): void;
 }
 
 function formatNotification(n: PaneEventNotification): object {
@@ -30,6 +38,19 @@ function formatNotification(n: PaneEventNotification): object {
 export function createPaneManager(): PaneManager {
   const panes = new Map<string, Pane>();
   const subscriptions = new Map<string, Set<net.Socket>>();
+
+  function broadcast(workspaceId: string, paneId: string, event: Record<string, unknown>): void {
+    const subs = subscriptions.get(workspaceId);
+    if (!subs) return;
+    const msg = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'pane.event',
+      params: { workspaceId, paneId, event },
+    }) + '\n';
+    for (const socket of subs) {
+      socket.write(msg);
+    }
+  }
 
   return {
     createPane(pty, cliKind, ctx) {
@@ -86,6 +107,21 @@ export function createPaneManager(): PaneManager {
       subs.delete(socket);
       if (subs.size === 0) {
         subscriptions.delete(workspaceId);
+      }
+    },
+
+    reportSentinel(report) {
+      broadcast(report.workspaceId, report.paneId, {
+        kind: 'sentinel',
+        cmd: report.cmd,
+        payload: report.payload,
+      });
+
+      if (report.cmd === 'done' || report.cmd === 'blocked') {
+        broadcast(report.workspaceId, report.paneId, {
+          kind: 'state',
+          state: report.cmd === 'done' ? 'done' : 'blocked',
+        });
       }
     },
   };
