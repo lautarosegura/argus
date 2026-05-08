@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { clean } from './commands/clean.js';
 import { daemonStatus } from './commands/daemon-status.js';
+import { doctor } from './commands/doctor.js';
 import { init } from './commands/init.js';
 import { list } from './commands/list.js';
 import { logs } from './commands/logs.js';
@@ -39,8 +40,12 @@ switch (command) {
     await clean(args.slice(1));
     break;
 
+  case 'doctor':
+    await doctor();
+    break;
+
   default:
     console.error(`Unknown command: ${command ?? '(none)'}`);
-    console.error(`Available commands: init, list, clean, logs, daemon-status`);
+    console.error(`Available commands: init, list, clean, logs, doctor, daemon-status`);
     process.exit(1);
 }
