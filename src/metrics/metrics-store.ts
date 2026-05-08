@@ -193,6 +193,26 @@ export function createMetricsStore(dbPath: string): MetricsStore {
     GROUP BY cli
   `);
 
+  const upsertPaneSummaryStmt = db.prepare(`
+    INSERT OR REPLACE INTO pane_summary
+      (workspace_id, pane_id, cli, started_at, ended_at, total_thinking_ms, total_tool_use_ms,
+       tokens_in, tokens_out, cost_usd, tool_calls_total, tool_calls_blocked, terminal_state)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const updateWorkspaceSummaryStmt = db.prepare(`
+    UPDATE workspace_summary SET
+      closed_at = COALESCE(?, closed_at),
+      panes_total = COALESCE(?, panes_total),
+      merges_total = COALESCE(?, merges_total)
+    WHERE id = ?
+  `);
+
+  const insertWorkspaceSummaryStmt = db.prepare(`
+    INSERT INTO workspace_summary (id, created_at, closed_at, panes_total, merges_total)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
   function eventToPayload(event: AdapterEvent): { kind: string; durationMs: number | null; payload: Record<string, unknown> } {
     const { kind, ...rest } = event as Record<string, unknown> & { kind: string };
     const durationMs = typeof rest.durationMs === 'number' ? rest.durationMs : null;
@@ -243,40 +263,42 @@ export function createMetricsStore(dbPath: string): MetricsStore {
         if (!startedAt) startedAt = row.ts;
         endedAt = row.ts;
 
-        if (row.event_kind === 'usage') {
-          const payload = JSON.parse(row.payload_json);
-          if (payload.tokensIn != null) {
-            tokensIn += payload.tokensIn;
-            hasUsage = true;
+        switch (row.event_kind) {
+          case 'usage': {
+            const payload = JSON.parse(row.payload_json);
+            if (payload.tokensIn != null) {
+              tokensIn += payload.tokensIn;
+              hasUsage = true;
+            }
+            if (payload.tokensOut != null) {
+              tokensOut += payload.tokensOut;
+              hasUsage = true;
+            }
+            if (payload.costUsd != null) {
+              costUsd += payload.costUsd;
+              hasCost = true;
+            }
+            break;
           }
-          if (payload.tokensOut != null) {
-            tokensOut += payload.tokensOut;
-            hasUsage = true;
-          }
-          if (payload.costUsd != null) {
-            costUsd += payload.costUsd;
-            hasCost = true;
-          }
-        } else if (row.event_kind === 'toolCall.requested') {
-          toolCallsTotal++;
-        } else if (row.event_kind === 'toolCall.completed') {
-          if (row.duration_ms != null) {
-            totalToolUseMs += row.duration_ms;
-          }
-        } else if (row.event_kind === 'state') {
-          const payload = JSON.parse(row.payload_json);
-          if (payload.state === 'done' || payload.state === 'dead') {
-            terminalState = payload.state;
+          case 'toolCall.requested':
+            toolCallsTotal++;
+            break;
+          case 'toolCall.completed':
+            if (row.duration_ms != null) {
+              totalToolUseMs += row.duration_ms;
+            }
+            break;
+          case 'state': {
+            const payload = JSON.parse(row.payload_json);
+            if (payload.state === 'done' || payload.state === 'dead') {
+              terminalState = payload.state;
+            }
+            break;
           }
         }
       }
 
-      db.prepare(`
-        INSERT OR REPLACE INTO pane_summary
-          (workspace_id, pane_id, cli, started_at, ended_at, total_thinking_ms, total_tool_use_ms,
-           tokens_in, tokens_out, cost_usd, tool_calls_total, tool_calls_blocked, terminal_state)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      upsertPaneSummaryStmt.run(
         workspaceId,
         paneId,
         cli,
@@ -300,23 +322,14 @@ export function createMetricsStore(dbPath: string): MetricsStore {
     upsertWorkspaceSummary(params: UpsertWorkspaceSummaryParams): void {
       const existing = this.getWorkspaceSummary(params.id);
       if (existing) {
-        db.prepare(`
-          UPDATE workspace_summary SET
-            closed_at = COALESCE(?, closed_at),
-            panes_total = COALESCE(?, panes_total),
-            merges_total = COALESCE(?, merges_total)
-          WHERE id = ?
-        `).run(
+        updateWorkspaceSummaryStmt.run(
           params.closedAt ?? null,
           params.panesTotal ?? null,
           params.mergesTotal ?? null,
           params.id,
         );
       } else {
-        db.prepare(`
-          INSERT INTO workspace_summary (id, created_at, closed_at, panes_total, merges_total)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(
+        insertWorkspaceSummaryStmt.run(
           params.id,
           params.createdAt ?? null,
           params.closedAt ?? null,
