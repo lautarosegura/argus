@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "sandcastle": "npx tsx .sandcastle/main.ts",
+    "sandcastle": "npx tsx .sandcastle/main.mts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
